@@ -1,0 +1,133 @@
+{
+  "version": 1,
+  "id": "covington-electrical-talent-acquisition",
+  "title": "Electrical Talent Acquisition Manager — Covington, Georgia",
+  "employer_name": "Electrical Contractor Incorporated",
+  "jobsite": "Covington, Georgia",
+  "search_center": "Covington Georgia",
+  "work_arrangement": "in_person",
+  "locations": [
+    "Covington Georgia", "Conyers Georgia", "Newton County Georgia",
+    "Rockdale County Georgia", "Social Circle Georgia", "Oxford Georgia",
+    "Monroe Georgia", "Loganville Georgia", "Lithonia Georgia",
+    "Snellville Georgia", "McDonough Georgia", "Decatur Georgia", "Atlanta Georgia"
+  ],
+  "location_policy": "Local-only discovery centered on Covington and Metro Atlanta until the user explicitly expands scope. Include out-of-area candidates only when a candidate-authored post or statement explicitly expresses plans or intent to relocate to Metro Atlanta. Do not conduct nationwide discovery or infer relocation interest from generic willingness to move. Verify the Covington in-person commute separately.",
+  "geographic_scope": {
+    "national_search_enabled": false,
+    "automatic_expansion": false,
+    "local_area": "Covington and Metro Atlanta",
+    "out_of_area_exception": "Explicit candidate-authored Metro Atlanta relocation intent, with source URL, excerpt and signal date preserved",
+    "origin_restriction": "None for candidates satisfying the explicit Metro Atlanta relocation exception",
+    "expansion_requires": "Further user instruction"
+  },
+  "tracks": [
+    {
+      "id": "electrical_recruiting",
+      "roles": [
+        "electrical recruiter", "electrical talent acquisition manager",
+        "skilled trades recruiter", "skilled-trades recruiter",
+        "construction recruiter", "craft recruiter", "craft recruiting manager",
+        "construction recruiting manager", "field recruiter"
+      ],
+      "minimum_years": null
+    },
+    {
+      "id": "recruiting_leadership",
+      "roles": [
+        "talent acquisition manager", "talent acquisition partner",
+        "talent acquisition specialist", "recruiting manager",
+        "recruitment manager", "senior recruiter", "recruiter",
+        "staffing manager", "staffing recruiter"
+      ],
+      "minimum_years": null,
+      "qualification_note": "Title alone is insufficient. Require demonstrated skilled-trades recruiting; electrical recruiting and commercial electrical understanding are preferred rather than hard exclusion gates."
+    }
+  ],
+  "fit_terms": [
+    "commercial electrical", "electrical construction", "electricians",
+    "journeyman", "electrical foremen", "skilled trades", "skilled-trades",
+    "craft recruiting", "construction recruiting", "electrical contractor",
+    "manpower planning", "field workforce"
+  ],
+  "compensation": {
+    "currency": "USD",
+    "unit": "year",
+    "maximum": null,
+    "target": 70000,
+    "advertised_maximum": 70000,
+    "flexibility": "Some flexibility above $70,000; no higher ceiling specified. Record expectations for employer review rather than automatically excluding above-target prospects.",
+    "minimum": null,
+    "acceptance_status": "UNKNOWN_UNTIL_EVIDENCED"
+  },
+  "start": "immediate",
+  "start_basis": "User explicitly confirmed immediate start during profile refinement.",
+  "travel_pay": false,
+  "travel_pay_basis": "Carried forward from prior user instructions; no travel allowance specified in the posting.",
+  "relocation": "Employer will help relocate; amount and terms unspecified. Current discovery remains local, with exceptions only for candidates explicitly mentioning Metro Atlanta relocation. Verify timing and in-person Covington willingness.",
+  "relocation_assistance": {"available": true, "amount": null, "terms": null},
+  "schedule": null,
+  "employment_arrangement": null,
+  "benefits": ["401(k)", "Dental insurance", "Health insurance", "Life insurance", "Paid time off", "Vision insurance"],
+  "required_evidence": [
+    "Experience recruiting skilled trades; electrical field recruiting is preferred",
+    "Ability to interview skilled-trades candidates and assess experience, skills and field fit",
+    "Ability to assess appropriate pay rates based on experience and skill level",
+    "Ownership of full-cycle recruiting, proactive sourcing and an ongoing candidate pipeline",
+    "Collaboration with project managers, superintendents, foremen and leadership on manpower needs"
+  ],
+  "preferred_experience": {
+    "commercial_electrical_years": 3,
+    "electrical_recruiting": true,
+    "commercial_electrical_understanding": true,
+    "hard_minimum": false,
+    "note": "Electrical recruiting and three years of commercial electrical experience are preferred, not mandatory. Broader skilled-trades recruiters are eligible; record electrical knowledge and technical-interview gaps for review. Do not require a manager title, college degree or electrician license absent further user instruction."
+  },
+  "responsibilities": [
+    "Recruit electricians, foremen and other skilled field roles through the full hiring process",
+    "Source through job boards, referrals, social media, trade schools and industry relationships",
+    "Conduct phone and in-person interviews and assess field capability before presentation to leadership",
+    "Plan for current and upcoming project manpower needs",
+    "Maintain a qualified pipeline and local electrical/skilled-trades relationships",
+    "Develop recruiting strategies, coordinate offers and support new-hire transitions",
+    "Maintain accurate recruiting records and candidate communication",
+    "Track recruiting activity, hiring outcomes and effective sources",
+    "Provide a professional candidate experience"
+  ],
+  "qualification_policy": {
+    "human_review_required": true,
+    "automatic_ab_promotion": false,
+    "maximum_signal_age_days": 30,
+    "ab_requires": [
+      "Evidence of this candidate's skilled-trades recruiting fit; electrical experience is preferred and reported separately",
+      "Credible candidate-specific job-seeking evidence with a confirmed original signal date within the last 30 days",
+      "Metro Atlanta residence or explicit candidate-authored intent to relocate to Metro Atlanta; relocation intent alone does not prove job-seeking",
+      "Identity and signal subject confirmed; later contradictory availability evidence reviewed"
+    ],
+    "readiness_to_record_separately": [
+      "Salary expectations against a $70,000 target with some flexibility; higher expectations require employer review",
+      "In-person Covington commute or supported relocation",
+      "Earliest start date relative to immediate need", "Relocation assistance needs and timing", "No routine travel-pay acceptance"
+    ],
+    "signal_exclusions": [
+      "A recruiter advertising vacancies or sourcing candidates is not evidence that the recruiter wants a job",
+      "Employer hiring ads, staffing-agency sales pitches and recruiter service advertisements",
+      "Undated Open To Work headlines and old resumes without a recent original statement",
+      "Index refresh, retrieval, publication metadata or a third-party like used as the candidate's signal date",
+      "A matching name alone used to merge identities or corroborate availability"
+    ],
+    "preserve": ["source_url", "original_signal_url", "signal_excerpt", "signal_date", "signal_date_basis", "retrieved_at", "evidence_status", "identity_basis"]
+  },
+  "broad_search": false,
+  "followup_names": [],
+  "activation": {
+    "status": "LOCAL_DRAFT_NOT_DEPLOYED",
+    "search_started": false,
+    "note": "Descriptive profile fields are not all enforced by the current runtime. Review recruiter-specific discovery, follow-ups and screening before activation. Do not reuse electrician launch scripts or expired sessions."
+  },
+  "research_constraints": {
+    "outreach_authorized": false,
+    "modify_hermes": false,
+    "budget_policy": "Use the existing cumulative ledger and all lower run, session, provider and runtime guards. Preserve the $100 POC ceiling. The prior $30 authorization does not itself activate a new run or override existing limits."
+  }
+}

@@ -1,0 +1,450 @@
+--- a/recruitme-upgrade/recruitme/autonomous.py
++++ b/recruitme-upgrade/recruitme/autonomous.py
+@@ -16,6 +16,7 @@
+ from .routing import ProviderRouter
+ from .plugins import DISCOVERY_PLUGINS
+ from .data import canonical_url
++from .discovery import annotate, page_key
+ 
+ ROLES=('commercial electrician','journeyman electrician','electrical foreman','electrical superintendent',
+        'electrical project manager','journeyman wireman','lead electrician','industrial electrician',
+@@ -207,6 +208,7 @@
+ 
+ def consume(state,plan,response,stamp,raw_path):
+     results=extract_results(response)
++    page_index={page_key(url):url for url in state['packets']}
+     for r in results:
+         state['result_appearances']+=1
+         p=screen(r)
+@@ -214,10 +216,21 @@
+             from .profiles import apply_screen
+             p=apply_screen(p,state['job_profile'])
+         if not p:state['irrelevant']+=1;continue
++        p=annotate(p,r,stamp)
+         host=urlsplit(p['source_url']).hostname
+         state['source_coverage'][host]=state['source_coverage'].get(host,0)+1
+         observation=dict(query=plan['query'],retrieved_at=stamp,raw_evidence_path=str(raw_path),
+-                         purpose=plan['purpose'],target=plan['target'])
++                         purpose=plan['purpose'],target=plan['target'],
++                         provider=response.get('provider',plan.get('provider')),
++                         source_family=plan.get('source_family'),source_url=p['source_url'],
++                         original_url=r.get('url'),published_date_metadata=p['published_date_metadata'],
++                         signal_excerpt=p['signal_excerpt'],
++                         discovery_evidence=p['discovery_evidence'])
++        # Canonical URL equivalence only: names/contact values never merge people.
++        key=page_key(p['source_url'])
++        existing=page_index.get(key)
++        if existing:p['source_url']=existing
++        else:page_index[key]=p['source_url']
+         if p['source_url'] in state['packets']:
+             state['duplicates']+=1
+             old=state['packets'][p['source_url']]
+@@ -234,6 +247,29 @@
+     if plan['target']:state['followups'][plan['target']]=state['followups'].get(plan['target'],0)+1
+     else:state['discovery_index']+=1
+     state['pending']=None
++
++
++def web_policy_plan(state, candidate, config):
++    """Free-first planning keeps variation and resumes exact pending requests."""
++    if state.get('pending'):
++        return state['pending']
++    candidate=dict(candidate)
++    candidate.pop('provider',None)
++    if len(state['queries']) < 3 or not config.get('paid_enabled'):
++        from .discovery import electrical_profile, plan as discovery_plan
++        profile=state.get('job_profile')
++        if profile and electrical_profile(profile):
++            candidate=discovery_plan(state,profile=profile,undated=True)
++            # Explicit selected sources still require enforceable domain filters.
++            if profile.get('source_ids'):
++                from .source_registry import apply_route
++                candidate=apply_route(candidate,state['discovery_index'],'field',profile)
++        elif profile:
++            index=state['discovery_index']
++            roles=[r for t in profile['tracks'] for r in t['roles']]
++            candidate=dict(query=(roles[index % len(roles)]+' '+profile['locations'][index % len(profile['locations'])]+' '+profile['fit_terms'][index % len(profile['fit_terms'])])[:350],
++                           purpose='discovery',strategy='free_first_profile_discovery',target=None,options={})
++    return candidate
+ 
+ 
+ def evaluate_yield(state):
+@@ -331,16 +367,7 @@
+             guard()
+             plan=next_query(state)
+             if ledger.config.get('web_search_policy'):
+-                plan.pop('provider',None)
+-                # Start with broad, undated discovery on free sources. These pages
+-                # remain research hints; verification still requires original dates.
+-                if len(state['queries']) < 3 or not ledger.config.get('paid_enabled'):
+-                    p=state['job_profile']
+-                    index=len(state['queries'])
+-                    role=p['tracks'][0]['roles'][index % len(p['tracks'][0]['roles'])]
+-                    place=p['locations'][index % len(p['locations'])]
+-                    plan=dict(query=(role+' '+place+' '+p['fit_terms'][index % len(p['fit_terms'])])[:350],
+-                              purpose='discovery',strategy='free_first_profile_discovery',target=None,options={})
++                plan=web_policy_plan(state,plan,ledger.config)
+             state['pending']=plan;checkpoint()
+             if state.get('improved'):
+                 response=client.search(plan['query'],10,options=plan.get('options'),provider=plan.get('provider',job.get('provider')))
+--- a/recruitme-upgrade/recruitme/profiles.py
++++ b/recruitme-upgrade/recruitme/profiles.py
+@@ -28,6 +28,11 @@
+     return p
+ 
+ def discovery(state,index):
++    from .discovery import electrical_profile, plan
++    if electrical_profile(state['job_profile']):
++        candidate = plan(state, index, state['job_profile'])
++        candidate['options']['exclude_domains'] = list(RESTRICTED)
++        return candidate
+     p=state['job_profile'];roles=[(t['id'],r) for t in p['tracks'] for r in t['roles']]
+     track,role=roles[index%len(roles)]
+     branch=(index//5)%4
+@@ -65,7 +70,8 @@
+             terms=('work history experience','current availability seeking employment','public resume and contact recency',
+                    'professional contact location earliest start','last 30 days availability update',
+                    'Atlanta metro commercial electrical role')[used%6]
+-            q=f'"{packet["name_hint"]}" {state["job_profile"]["tracks"][0]["roles"][0]} {terms}'[:500]
++            from .discovery import followup_anchor
++            q=f'{followup_anchor(packet)} {state["job_profile"]["tracks"][0]["roles"][0]} {terms}'[:500]
+             if any(x['query']==q for x in state['queries']):continue
+             return dict(query=q,purpose='corroboration/contact',strategy='candidate_followup',target=packet['source_url'],provider=provider,options={'exclude_domains':RESTRICTED})
+     return dict(discovery(state,20+state['discovery_index']),provider=provider)
+@@ -101,10 +107,17 @@
+             if used>=3:continue
+             terms=('Atlanta electrical experience','seeking work availability date','professional contact Georgia',
+                    'recent resume update','commercial project completion date','immediate start willingness')[used]
+-            q=f'"{packet["name_hint"]}" {terms}'
++            from .discovery import followup_anchor
++            q=f'{followup_anchor(packet)} {terms}'[:500]
+             if any(x['query']==q for x in state['queries']):continue
+             return dict(query=q,purpose='corroboration/contact',strategy='new_person_review',target=packet['source_url'],provider=provider,options={'exclude_domains':RESTRICTED})
+     i=state['discovery_index'];branch=i%8
++    from .discovery import electrical_profile, plan
++    if electrical_profile(p):
++        candidate = plan(state, i, p)
++        candidate['options']['exclude_domains'] = list(RESTRICTED)
++        candidate['provider'] = provider
++        return candidate
+     place=p['locations'][(i//8)%len(p['locations'])]
+     role=('electrician','journeyman electrician','commercial electrician','journeyman wireman','lead electrician',
+           'service electrician','industrial electrician','electrical foreman','commissioning electrician',
+--- a/recruitme-upgrade/recruitme/improved_search.py
++++ b/recruitme-upgrade/recruitme/improved_search.py
+@@ -38,6 +38,13 @@
+ )
+ 
+ def plan(state):
++    from .discovery import plan as discovery_plan
++    candidate = discovery_plan(state)
++    candidate['options']['exclude_domains'] = list(RESTRICTED)
++    return candidate
++
++
++def legacy_plan(state):
+     i=state['discovery_index'];n=len(state['queries'])
+     now=datetime.date.fromisoformat(state['search_as_of'])
+     options={'exclude_domains':RESTRICTED}
+--- /dev/null
++++ b/recruitme-upgrade/recruitme/discovery.py
+@@ -0,0 +1,127 @@
++"""Pure search planning and unverified discovery evidence; no scoring or I/O."""
++import datetime
++import re
++from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
++
++from .data import canonical_url
++
++PLACES = ('Doraville', 'Atlanta', 'Chamblee', 'Norcross', 'Tucker', 'Decatur',
++          'Marietta', 'Smyrna', 'Sandy Springs', 'Duluth', 'Lawrenceville',
++          'Peachtree Corners', 'Brookhaven', 'Dunwoody', 'Alpharetta',
++          'Kennesaw', 'Stone Mountain', 'DeKalb County', 'Gwinnett County',
++          'Fulton County', 'Cobb County', 'Johns Creek')
++ROLES = ('commercial electrician', 'journeyman electrician', 'journeyman wireman',
++         'lead electrician', 'construction electrician', 'electrical foreman')
++SIGNALS = ('looking for work', 'open to work', 'seeking employment',
++           'available for work', 'looking for my next project', 'laid off',
++           'project ending', 'seeking another employer')
++TASKS = ('commercial construction', 'tenant buildout', 'conduit installation',
++         'switchgear installation', 'commercial wiring', 'electrical construction')
++
++
++def electrical_profile(profile):
++    return any(re.search(r'\b(?:electrician|wireman|electrical foreman)\b', role, re.I)
++               for track in profile.get('tracks', []) for role in track['roles'])
++
++
++def plan(state, index=None, profile=None, undated=False):
++    """Rotate independent dimensions, retaining local intent beyond the first batch.
++
++    Exact years are a recall branch, never a mandatory qualification filter.
++    Saved profile geography/roles remain authoritative for other searches.
++    """
++    i = state['discovery_index'] if index is None else index
++    roles = [r for t in profile['tracks'] for r in t['roles']] if profile else ROLES
++    places = profile['locations'] if profile else [p + ' Georgia' for p in PLACES]
++    role = roles[i % len(roles)]
++    place = places[(i // 4 + i % 4) % len(places)]
++    signal = SIGNALS[(i // 4) % len(SIGNALS)]
++    task = TASKS[(i // 4 + i // len(SIGNALS)) % len(TASKS)]
++    branch = i % 4
++    queries = (
++        f'{role} "{signal}" {place} {task}',
++        f'{role} resume {place} {task} "{3 + (i // 4) % 8} years"',
++        f'{role} "{signal}" {place} {task} resume',
++        f'{role} {place} {task} professional resume "{signal}"',
++    )
++    options = {}
++    if not undated and branch != 3:
++        now = datetime.date.fromisoformat(state['search_as_of'])
++        options.update(start_date=(now - datetime.timedelta(days=(30,90,180)[branch])).isoformat(),
++                       end_date=now.isoformat())
++    return dict(query=queries[branch][:500], purpose='discovery', target=None,
++                strategy=('recent_availability','recent_resumes','transition_180_days','undated_review')[branch],
++                options=options)
++
++
++def page_key(url):
++    """Remove known tracking only; preserve identity query parameters/API IDs."""
++    u = urlsplit(canonical_url(url))
++    pairs = parse_qsl(u.query, keep_blank_values=True)
++    kept = [(k,v) for k,v in pairs if not k.lower().startswith('utm_')
++            and k.lower() not in ('gclid','fbclid','msclkid')]
++    # Preserve exact query encoding/order when nothing was removed.
++    query = urlencode(kept) if len(kept) != len(pairs) else u.query
++    return urlunsplit((u.scheme,u.netloc,u.path,query,u.fragment))
++
++
++def followup_anchor(packet):
++    """Name plus observed locality limits namesake matches; identity stays unverified."""
++    if not packet.get('name_hint'):
++        return packet['source_url']
++    places=packet.get('discovery_evidence',{}).get('local_place_mentions',[])
++    return '"'+packet['name_hint']+'"'+(' '+places[0]+' Georgia' if places else '')
++
++
++def date_status(value, as_of):
++    try:
++        date = datetime.date.fromisoformat(value[:10])
++        age = (as_of - date).days
++        return {'status': 'FUTURE' if age < 0 else 'RECENT' if age <= 180 else 'STALE',
++                'age_days': age}
++    except (ValueError, TypeError):
++        return {'status': 'UNKNOWN', 'age_days': None}
++
++
++def annotate(packet, result, stamp):
++    """Hints are source claims, never verified facts or score inputs."""
++    text = packet['text']
++    try:
++        as_of = datetime.date.fromisoformat(stamp[:10])
++    except (ValueError, TypeError):
++        as_of = datetime.datetime.now(datetime.timezone.utc).date()
++    local = [p for p in PLACES if re.search(r'\b'+re.escape(p)+r'\b', text, re.I)]
++    years = []
++    # Require explicit electrical context next to duration, excluding generic tenure.
++    duration = r'(\d{1,2})(?:\s*[-–]\s*(\d{1,2}))?\s*(\+)?\s*years?'
++    trade = r'(?:commercial\s+)?(?:electrician|electrical(?:\s+construction)?|wireman)'
++    for pattern in (duration+r'\s+(?:of\s+)?(?:experience\s+(?:in|as)\s+)?'+trade,
++                    trade+r'\s+(?:with\s+)?'+duration):
++        for match in re.finditer(pattern, text, re.I):
++            low = int(match[1]); high = int(match[2] or match[1])
++            years.append(dict(minimum=low, maximum=None if match[3] else high,
++                              target_range_hint=not match[3] and 3 <= low <= high <= 10,
++                              excerpt=match.group()))
++    routes = []
++    if packet.get('name_hint') and urlsplit(packet['source_url']).hostname != 'api.apollo.io':
++        routes.append(dict(route_type='source_profile', value=packet['source_url'],
++                           excerpt=packet.get('title') or '', status='UNVERIFIED'))
++    # Only explicitly labelled professional contact invitations; no guessed emails.
++    for match in re.finditer(r'(?:business email|professional email|contact me(?: at)?|email me(?: at)?)\s*[:\-]?\s*'
++                             r'([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})', text, re.I):
++        if (not packet['hiring_ad_flag'] and not packet['third_party_signal_flag']
++                and urlsplit(packet['source_url']).hostname != 'api.apollo.io'):
++            routes.append(dict(route_type='public_professional_email', value=match[1],
++                               excerpt=match.group(), status='UNVERIFIED'))
++    for route in routes:
++        route.update(source_url=packet['source_url'], retrieved_at=stamp,
++                     ownership_confirmed=False)
++    packet['discovery_evidence'] = dict(
++        local_place_mentions=local, geography_confirmed=False,
++        electrical_experience_claims=years,
++        commercial_construction_mentions=[m.group() for m in re.finditer(
++            r'\b(?:commercial (?:electrician|construction|wiring)|tenant buildout|electrical construction)\b', text, re.I)],
++        publication_freshness=date_status(result.get('publishedDate'), as_of),
++        signal_freshness='UNCONFIRMED', contact_routes=routes,
++        human_review_required=True)
++    return packet
+--- /dev/null
++++ b/recruitme-upgrade/tests/test_discovery.py
+@@ -0,0 +1,169 @@
++import copy
++import unittest
++
++from recruitme.autonomous import consume, new_state, next_query, screen, web_policy_plan
++from recruitme.discovery import annotate, date_status, page_key, plan, PLACES
++from recruitme.profiles import discovery, broad_plan, next_plan
++from recruitme.search_options import validate_options
++import datetime
++
++
++class DiscoveryTests(unittest.TestCase):
++    def state(self):
++        s=new_state()
++        s.update(improved=True,search_as_of='2026-09-13',focus_month='September 2026')
++        return s
++
++    def profile(self):
++        return dict(id='atlanta-test',version=1,locations=['Doraville Georgia','Atlanta Georgia'],
++                    fit_terms=['commercial'],tracks=[dict(id='experienced',roles=['commercial electrician'])])
++
++    def result(self, **kw):
++        result=dict(url='https://example.org/person',title='Jane Doe - Electrician',
++                    text='Commercial electrician with 8 years. Looking for work in Doraville Georgia. '
++                         'Business email: jane@example.org',publishedDate='2026-09-01')
++        result.update(kw)
++        return result
++
++    def packet(self, **kw):
++        r=self.result(**kw)
++        return annotate(screen(r),r,'2026-09-13T12:00:00+00:00')
++
++    def test_local_diverse_bounded_queries_beyond_initial_batch(self):
++        s=self.state();queries=[];strategies=set()
++        for i in range(240):
++            s['discovery_index']=i
++            p=next_query(s);queries.append(p['query']);strategies.add(p['strategy'])
++            self.assertTrue(any(place+' Georgia' in p['query'] for place in PLACES))
++            self.assertLessEqual(len(p['query']),500)
++            validate_options(p['options'])
++            self.assertNotIn('hiring for immediate start',p['query'])
++            s['queries'].append(p)
++        self.assertEqual(len(set(queries)),240)
++        self.assertEqual(len(strategies),4)
++
++    def test_year_branch_covers_target_without_requiring_years_everywhere(self):
++        queries=[plan(self.state(),i)['query'] for i in range(32)]
++        for year in range(3,11):self.assertTrue(any(f'"{year} years"' in q for q in queries))
++        self.assertEqual(sum('years' in q for q in queries),8)
++
++    def test_date_windows_and_undated_branch(self):
++        s=self.state()
++        for i,days in enumerate((30,90,180,None)):
++            options=plan(s,i)['options']
++            if days is None:self.assertNotIn('start_date',options)
++            else:
++                self.assertEqual(options['end_date'],'2026-09-13')
++                self.assertEqual(options['start_date'],(datetime.date(2026,9,13)-datetime.timedelta(days=days)).isoformat())
++
++    def test_profile_and_broad_search_use_saved_geography(self):
++        s=self.state();s['job_profile']=self.profile()
++        s['job_profile']['locations']=['Savannah Georgia']
++        for i in range(12):
++            s['discovery_index']=i
++            self.assertIn('Savannah Georgia',discovery(s,i)['query'])
++            self.assertIn('Savannah Georgia',broad_plan(s,'tavily')['query'])
++
++    def test_free_queries_vary_and_have_no_paid_provider_override(self):
++        s=self.state();s['job_profile']=self.profile();queries=[]
++        for i in range(40):
++            s['discovery_index']=i
++            p=web_policy_plan(s,next_query(s),{'paid_enabled':False})
++            self.assertNotIn('provider',p);self.assertEqual(p['options'],{})
++            queries.append(p['query']);s['queries'].append(p)
++        self.assertGreater(len(set(queries)),30)
++
++    def test_free_selected_source_is_not_silently_broadened(self):
++        s=self.state();s['job_profile']=self.profile();s['job_profile']['source_ids']=['roadtechs']
++        p=web_policy_plan(s,next_query(s),{'paid_enabled':False})
++        self.assertEqual(p['options']['include_domains'],['roadtechs.com'])
++        self.assertIn('site:roadtechs.com',p['query'])
++
++    def test_pending_request_and_configuration_unchanged(self):
++        s=self.state();s['pending']=dict(query='saved',provider='tavily',options={'start_date':'2026-01-01'})
++        config={'paid_enabled':False,'default_run_limit_usd':'5'};before=copy.deepcopy(config)
++        self.assertIs(web_policy_plan(s,{},config),s['pending'])
++        self.assertEqual(config,before)
++
++    def test_followups_use_observed_locality_without_confirming_identity(self):
++        s=self.state();s['job_profile']=self.profile()
++        packet=self.packet();s['packets'][packet['source_url']]=packet
++        s['queries']=[{'query':'previous'}]*41
++        p=next_plan(s)
++        self.assertIn('"Jane Doe" Doraville Georgia',p['query'])
++        self.assertEqual(p['target'],packet['source_url'])
++        self.assertFalse(packet['identity_confirmed'])
++
++    def test_annotations_do_not_change_scoring_or_classification(self):
++        r=self.result();p=screen(r);before=copy.deepcopy(p)
++        annotate(p,r,'2026-09-13')
++        for key in before:self.assertEqual(before[key],p[key])
++        evidence=p['discovery_evidence']
++        self.assertIn('Doraville',evidence['local_place_mentions'])
++        self.assertFalse(evidence['geography_confirmed'])
++        self.assertTrue(evidence['electrical_experience_claims'][0]['target_range_hint'])
++        self.assertEqual(evidence['signal_freshness'],'UNCONFIRMED')
++
++    def test_year_claims_are_relevant_not_generic_tenure(self):
++        for text in ('Commercial electrician. 8 years at a restaurant.',
++                     'Commercial electrician. Founded in 2018.', 'Commercial electrician since 2019.'):
++            self.assertEqual(self.packet(text=text)['discovery_evidence']['electrical_experience_claims'],[])
++        for text in ('3-10 years electrical construction','10+ years electrical construction','12 years electrician'):
++            claims=self.packet(text=text)['discovery_evidence']['electrical_experience_claims']
++            self.assertEqual(claims[0]['target_range_hint'],text.startswith('3-10'))
++
++    def test_freshness_missing_invalid_future_and_stale(self):
++        today=datetime.date(2026,9,13)
++        for value,status in ((None,'UNKNOWN'),('bad','UNKNOWN'),('2027-01-01','FUTURE'),
++                             ('2025-01-01','STALE'),('2026-09-12','RECENT')):
++            self.assertEqual(date_status(value,today)['status'],status)
++
++    def test_explicit_contact_route_preserves_source_and_ownership_uncertainty(self):
++        routes=self.packet()['discovery_evidence']['contact_routes']
++        email=next(r for r in routes if r['route_type']=='public_professional_email')
++        self.assertEqual(email['value'],'jane@example.org')
++        self.assertEqual(email['source_url'],'https://example.org/person')
++        self.assertFalse(email['ownership_confirmed'])
++        self.assertIn('Business email',email['excerpt'])
++
++    def test_unlabelled_ad_and_third_party_contacts_not_extracted(self):
++        for suffix in ('jane@example.org','We are hiring. Contact me at hr@example.org',
++                       'My friend is looking for work. Contact me at friend@example.org'):
++            routes=self.packet(text='Commercial electrician. '+suffix)['discovery_evidence']['contact_routes']
++            self.assertFalse(any(r['route_type']=='public_professional_email' for r in routes))
++
++    def test_apollo_provenance_not_a_contact_route_or_shared_identity(self):
++        a='https://api.apollo.io/api/v1/mixed_people/api_search#person1'
++        b=a.replace('person1','person2')
++        self.assertNotEqual(page_key(a),page_key(b))
++        self.assertEqual(self.packet(url=a)['discovery_evidence']['contact_routes'],[])
++
++    def test_tracking_duplicates_preserve_each_observation(self):
++        s=self.state();p=next_query(s)
++        a=self.result(url='https://example.org/person?utm_source=search')
++        b=self.result(url='https://example.org/person?fbclid=123')
++        consume(s,p,{'provider':'tavily','provider_response':{'results':[a,b]}},'2026-09-13','raw.json')
++        self.assertEqual(len(s['packets']),1);self.assertEqual(s['duplicates'],1)
++        obs=next(iter(s['packets'].values()))['observations']
++        self.assertEqual([o['original_url'] for o in obs],[a['url'],b['url']])
++        self.assertEqual(obs[0]['provider'],'tavily')
++        self.assertIn('discovery_evidence',obs[1])
++
++    def test_distinct_identity_parameters_and_same_names_never_merge(self):
++        s=self.state();p=next_query(s)
++        results=[self.result(url='https://example.org/profile?id='+str(i)) for i in range(2)]
++        consume(s,p,{'provider_response':{'results':results}},'2026-09-13','raw.json')
++        self.assertEqual(len(s['packets']),2)
++
++    def test_old_checkpoint_tracking_alias_merges_and_contradiction_survives(self):
++        s=self.state();p=next_query(s)
++        old=self.result(url='https://example.org/person?utm_source=old')
++        packet=screen(old);packet['observations']=[];s['packets'][old['url']]=packet
++        new=self.result(text='Commercial electrician. Looking for work. I got hired.')
++        consume(s,p,{'provider_response':{'results':[new]}},'2026-09-13','new.json')
++        self.assertEqual(len(s['packets']),1)
++        self.assertTrue(s['packets'][old['url']]['contradiction_flag'])
++        self.assertEqual(s['packets'][old['url']]['classification'],'Passive Research Pool')
++
++
++if __name__ == '__main__':unittest.main()

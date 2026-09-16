@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "id": "atlanta-electricians",
+  "title": "Doraville first, Metro Atlanta electrician sourcing",
+  "locations": [
+    "Atlanta Georgia",
+    "Doraville Georgia",
+    "Chamblee Georgia",
+    "Brookhaven Georgia",
+    "Sandy Springs Georgia",
+    "Dunwoody Georgia",
+    "Alpharetta Georgia",
+    "Smyrna Georgia",
+    "Marietta Georgia",
+    "Johns Creek Georgia",
+    "Tucker Georgia",
+    "Norcross Georgia",
+    "Peachtree Corners Georgia",
+    "DeKalb County Georgia",
+    "Gwinnett County Georgia",
+    "Fulton County Georgia"
+  ],
+  "fit_terms": [
+    "commercial",
+    "industrial",
+    "conduit",
+    "tenant buildout",
+    "electrical construction",
+    "switchgear",
+    "commissioning",
+    "shutdown",
+    "project transition",
+    "open to work",
+    "relocation",
+    "availability"
+  ],
+  "tracks": [
+    {
+      "id": "experienced",
+      "roles": [
+        "electrician",
+        "commercial electrician",
+        "journeyman electrician",
+        "journeyman wireman",
+        "service electrician",
+        "electrical foreman",
+        "electrical superintendent",
+        "electrical project manager",
+        "commissioning electrician",
+        "shutdown outage electrician",
+        "lead electrician",
+        "industrial electrician"
+      ],
+      "minimum_years": 3
+    },
+    {
+      "id": "junior",
+      "roles": [
+        "junior electrician",
+        "electrical apprentice",
+        "electrician helper"
+      ],
+      "minimum_years": null,
+      "qualification_status": "SUPERVISION_AND_TASK_REQUIREMENTS_PENDING"
+    }
+  ],
+  "compensation": {
+    "currency": "USD",
+    "unit": "hour",
+    "maximum": 35,
+    "minimum": null
+  },
+  "start": "immediate",
+  "travel_pay": false,
+  "relocation": "Must be supported by evidence; assistance unknown",
+  "employer_name": null,
+  "jobsite": null,
+  "schedule": null,
+  "employment_arrangement": null,
+  "search_center": "Doraville Georgia"
+}

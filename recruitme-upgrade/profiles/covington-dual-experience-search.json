@@ -1,0 +1,201 @@
+{
+  "version": 1,
+  "id": "covington-electrical-talent-acquisition",
+  "title": "Electrical Talent Acquisition Manager \u2014 Covington, Georgia",
+  "employer_name": "Electrical Contractor Incorporated",
+  "jobsite": "Covington, Georgia",
+  "search_center": "Covington Georgia",
+  "work_arrangement": "in_person",
+  "locations": [
+    "Covington Georgia",
+    "Conyers Georgia",
+    "Newton County Georgia",
+    "Rockdale County Georgia",
+    "Social Circle Georgia",
+    "Oxford Georgia",
+    "Monroe Georgia",
+    "Loganville Georgia",
+    "Lithonia Georgia",
+    "Snellville Georgia",
+    "McDonough Georgia",
+    "Decatur Georgia",
+    "Atlanta Georgia",
+    "Doraville Georgia",
+    "Chamblee Georgia",
+    "Norcross Georgia",
+    "Tucker Georgia",
+    "Marietta Georgia",
+    "Alpharetta Georgia",
+    "Roswell Georgia",
+    "Smyrna Georgia",
+    "Lawrenceville Georgia",
+    "Duluth Georgia",
+    "Cumming Georgia",
+    "Kennesaw Georgia",
+    "Peachtree Corners Georgia",
+    "Sandy Springs Georgia",
+    "Lithia Springs Georgia"
+  ],
+  "location_policy": "Metro Atlanta first; Southeast discovery allowed for C if seeking work or willing to relocate. No nationwide search.",
+  "geographic_scope": {
+    "national_search_enabled": false,
+    "automatic_expansion": false,
+    "local_area": "Covington and Metro Atlanta",
+    "out_of_area_exception": "Southeast candidates seeking work or generally willing to relocate",
+    "origin_restriction": "Georgia, Alabama, Florida, Tennessee, North Carolina, South Carolina",
+    "expansion_requires": "Further user instruction",
+    "southeast_search_enabled": true
+  },
+  "tracks": [
+    {
+      "id": "electrical_recruiting",
+      "roles": [
+        "electrical recruiter",
+        "electrical talent acquisition manager",
+        "skilled trades recruiter",
+        "skilled-trades recruiter",
+        "construction recruiter",
+        "craft recruiter",
+        "craft recruiting manager",
+        "construction recruiting manager",
+        "field recruiter"
+      ],
+      "minimum_years": null
+    },
+    {
+      "id": "recruiting_leadership",
+      "roles": [
+        "talent acquisition manager",
+        "talent acquisition partner",
+        "talent acquisition specialist",
+        "recruiting manager",
+        "recruitment manager",
+        "senior recruiter",
+        "recruiter",
+        "staffing manager",
+        "staffing recruiter"
+      ],
+      "minimum_years": null,
+      "qualification_note": "Both electrical field and recruiting/HR experience required."
+    }
+  ],
+  "fit_terms": [
+    "commercial electrical",
+    "electrical construction",
+    "electricians",
+    "journeyman",
+    "electrical foremen",
+    "skilled trades",
+    "skilled-trades",
+    "craft recruiting",
+    "construction recruiting",
+    "electrical contractor",
+    "manpower planning",
+    "field workforce"
+  ],
+  "compensation": {
+    "currency": "USD",
+    "unit": "year",
+    "maximum": null,
+    "target": 70000,
+    "advertised_maximum": 70000,
+    "flexibility": "Some flexibility above $70,000; no higher ceiling specified. Record expectations for employer review rather than automatically excluding above-target prospects.",
+    "minimum": null,
+    "acceptance_status": "UNKNOWN_UNTIL_EVIDENCED"
+  },
+  "start": "immediate",
+  "start_basis": "User explicitly confirmed immediate start during profile refinement.",
+  "travel_pay": false,
+  "travel_pay_basis": "Carried forward from prior user instructions; no travel allowance specified in the posting.",
+  "relocation": "Relocation assistance available; Southeast candidates may express general willingness to relocate. Verify willingness to work in Covington.",
+  "relocation_assistance": {
+    "available": true,
+    "amount": null,
+    "terms": null
+  },
+  "schedule": null,
+  "employment_arrangement": null,
+  "benefits": [
+    "401(k)",
+    "Dental insurance",
+    "Health insurance",
+    "Life insurance",
+    "Paid time off",
+    "Vision insurance"
+  ],
+  "required_evidence": [
+    "Hands-on electrical field employment AND subsequent recruiting or HR experience",
+    "Ability to interview electrical candidates, assess demonstrated field skills and recommend appropriate pay; verify through interview/work sample"
+  ],
+  "preferred_experience": {
+    "note": "Both electrical field and recruiting/HR experience are now mandatory. Do not infer field experience from recruiting electricians. No mandatory degree or license added."
+  },
+  "responsibilities": [
+    "Recruit electricians, foremen and other skilled field roles through the full hiring process",
+    "Source through job boards, referrals, social media, trade schools and industry relationships",
+    "Conduct phone and in-person interviews and assess field capability before presentation to leadership",
+    "Plan for current and upcoming project manpower needs",
+    "Maintain a qualified pipeline and local electrical/skilled-trades relationships",
+    "Develop recruiting strategies, coordinate offers and support new-hire transitions",
+    "Maintain accurate recruiting records and candidate communication",
+    "Track recruiting activity, hiring outcomes and effective sources",
+    "Provide a professional candidate experience"
+  ],
+  "qualification_policy": {
+    "human_review_required": true,
+    "automatic_ab_promotion": false,
+    "maximum_signal_age_days": 30,
+    "ab_requires": [
+      "Metro Atlanta residence",
+      "Both electrical field and recruiting/HR experience",
+      "Confirmed candidate-specific job-seeking signal within last 30 days",
+      "Identity and conflicting evidence reviewed"
+    ],
+    "readiness_to_record_separately": [
+      "Salary expectations against a $70,000 target with some flexibility; higher expectations require employer review",
+      "In-person Covington commute or supported relocation",
+      "Earliest start date relative to immediate need",
+      "Relocation assistance needs and timing",
+      "No routine travel-pay acceptance"
+    ],
+    "signal_exclusions": [
+      "A recruiter advertising vacancies or sourcing candidates is not evidence that the recruiter wants a job",
+      "Employer hiring ads, staffing-agency sales pitches and recruiter service advertisements",
+      "Undated Open To Work headlines and old resumes without a recent original statement",
+      "Index refresh, retrieval, publication metadata or a third-party like used as the candidate's signal date",
+      "A matching name alone used to merge identities or corroborate availability"
+    ],
+    "preserve": [
+      "source_url",
+      "original_signal_url",
+      "signal_excerpt",
+      "signal_date",
+      "signal_date_basis",
+      "retrieved_at",
+      "evidence_status",
+      "identity_basis"
+    ]
+  },
+  "broad_search": false,
+  "followup_names": [],
+  "activation": {
+    "status": "AUTHORIZED_AWS_RUN",
+    "search_started": true,
+    "note": "Dual-experience public-index discovery. No LinkedIn login access and no model calls."
+  },
+  "research_constraints": {
+    "outreach_authorized": false,
+    "modify_hermes": false,
+    "budget_policy": "User authorized up to $20 for this single 30-minute batch; preserve cumulative ledger, $100 POC ceiling and lower aggregate/provider safeguards. No automatic follow-on run."
+  },
+  "screening_version": "dual-experience-2026-09-11",
+  "discovery_provider": "exa_keyed",
+  "candidate_target": 25,
+  "grading": {
+    "A": "Local dual-experience fit, recent personal job-seeking evidence, stronger technical interviewing/pay-assessment evidence",
+    "B": "Local dual-experience fit and recent personal job-seeking evidence; interviewing/pay-assessment detail still needs review",
+    "C": "Southeast dual-experience prospect seeking work or willing to relocate; general relocation statement accepted",
+    "D": "Metro Atlanta dual-experience fit without confirmed recent personal job-seeking evidence",
+    "automated_grades": "Proposed review groups only. No automatic A/B verification."
+  }
+}
