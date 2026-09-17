@@ -36,6 +36,8 @@ const candidateSchema = z.object({
   qualificationReason: z.string().max(3000).nullable().optional(),
   evidenceLinks: z.array(sourceLink).max(50).optional(),
   contactRoutes: z.array(sourceLink).max(20).optional(),
+  reviewDecision: z.enum(["A", "B", "FIT_POOL", "REJECT"]).nullable().optional(),
+  reviewer: z.string().max(120).nullable().optional(),
 });
 export const snapshotSchema = z.object({
   generatedAt: z.string().datetime({ offset: true }),

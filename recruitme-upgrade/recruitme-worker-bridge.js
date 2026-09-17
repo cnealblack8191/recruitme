@@ -5,10 +5,10 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 const action = process.argv[2];
-const allowedActions = ["launch", "stop", "status", "activate_apollo"];
+const allowedActions = ["launch", "stop", "status", "activate_apollo", "review"];
 
 if (!allowedActions.includes(action)) {
-  console.error("Invalid action. Use launch, stop, or status.");
+  console.error("Invalid action. Use launch, stop, status, activate_apollo, or review.");
   process.exit(1);
 }
 
@@ -65,6 +65,7 @@ const cfg = {
   launchScript: getenv(["LAUNCH_SCRIPT", "RECRUITME_LAUNCH_SCRIPT", "RECRUITME_BRIDGE_LAUNCH_SCRIPT"], "launch_metro_deep_remote.py"),
   stopScript: getenv(["STOP_SCRIPT", "RECRUITME_STOP_SCRIPT", "RECRUITME_BRIDGE_STOP_SCRIPT"], "stop_metro_deep_remote.py"),
   statusScript: getenv(["STATUS_SCRIPT", "RECRUITME_STATUS_SCRIPT", "RECRUITME_BRIDGE_STATUS_SCRIPT"], "status_metro_deep_remote.py"),
+  reviewScript: getenv(["REVIEW_SCRIPT", "RECRUITME_REVIEW_SCRIPT", "RECRUITME_BRIDGE_REVIEW_SCRIPT"], "review_import_remote.py"),
 };
 
 if (!cfg.instanceId) {
@@ -224,13 +225,26 @@ function parseStatusFromText(text) {
 function runPayload(input) {
   ensureAccessKeys();
   const script =
-    action === "launch" ? cfg.launchScript : action === "stop" ? cfg.stopScript : cfg.statusScript;
+    action === "launch" ? cfg.launchScript
+      : action === "stop" ? cfg.stopScript
+        : action === "review" ? cfg.reviewScript
+          : cfg.statusScript;
   const commandId = sendCommand(script, input);
   const invocation = waitForCommand(commandId);
   const output = readJsonFromOutput(invocation.StandardOutputContent || "");
   if (action === 'activate_apollo') {
     if (!output?.connected || output.provider !== 'apollo') throw new Error('Worker did not confirm the Apollo connection.');
     console.log(JSON.stringify({ connected: true, provider: 'apollo' }));
+    return;
+  }
+
+  if (action === "review") {
+    // A rejected submission is a normal outcome carrying the gate failures; only a
+    // malformed reply is an error.
+    if (!output || typeof output.accepted !== 'boolean' || (output.accepted && !output.candidateId) || (!output.accepted && !Array.isArray(output.errors))) {
+      throw new Error('Worker did not return a review receipt. Refresh status before retrying.');
+    }
+    console.log(JSON.stringify(output));
     return;
   }
 

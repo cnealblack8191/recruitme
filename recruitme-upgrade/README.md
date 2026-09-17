@@ -13,13 +13,16 @@ Maintained upgrade source in the Candidate Portal workspace. Installed target: `
 
 ## RecruitMe web bridge controls
 
-The server now expects three JSON-array commands:
+The server now expects three JSON-array commands, plus an optional fourth for storing reviewed candidates:
 
 ```bash
 RECRUITME_BRIDGE_LAUNCH_CMD
 RECRUITME_BRIDGE_STOP_CMD
 RECRUITME_BRIDGE_STATUS_CMD
+RECRUITME_BRIDGE_REVIEW_CMD   # ["node","/path/to/recruitme-worker-bridge.js","review"]
 ```
+
+`review` runs `review_import_remote.py` on the worker. It takes one recruiter-form submission (see `shared/recruitmeReview.ts` and `recruitme/review.py`), converts it into a reviewed import with per-evidence human attestations, stores it under a zero-budget `review-*` run, associates it with the discovery run the reviewer was viewing, and returns the qualification result. An A or B decision is stored only when every gate passes; otherwise the worker rolls back and returns the failing gates so the reviewer can downgrade to `FIT_POOL`. Identity confidence below `confirmed` keeps every claim an inference. The active job's profile (`/etc/recruitme/first-search.json`) supplies the localities, signal window and role kind; a submission may narrow them.
 
 Recommended runtime wiring:
 

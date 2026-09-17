@@ -29,7 +29,14 @@ import { toast } from "sonner";
 import "./recruitme.css";
 import RecruitMePanels from "./RecruitMePanels";
 import RecruitMeCandidates from "./RecruitMeCandidates";
-import { type WorkflowStatus } from "./recruitme-model";
+import RecruitMeReview from "./RecruitMeReview";
+import { type Candidate, type WorkflowStatus } from "./recruitme-model";
+import {
+  emptyReviewDraft,
+  reviewSubmissionSchema,
+  type ReviewReceipt,
+  type ReviewSubmissionInput,
+} from "@shared/recruitmeReview";
 
 const sections = [
   "Overview",
@@ -56,6 +63,9 @@ export default function RecruitMe() {
   const { user, loading } = useAuth();
   const [section, setSection] = useState<(typeof sections)[number]>("Overview");
   const [draft, setDraft] = useState<JobProfile | null>(null);
+  const [review, setReview] = useState<ReviewSubmissionInput>(emptyReviewDraft);
+  const [reviewReceipt, setReviewReceipt] = useState<ReviewReceipt | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
   const allowed = user?.role === "admin";
   const workspace = trpc.recruitme.workspace.useQuery(undefined, {
@@ -100,6 +110,54 @@ export default function RecruitMe() {
     },
     onError: e => toast.error(e.message),
   });
+  const submitReview = trpc.recruitme.submitReview.useMutation({
+    onSuccess: receipt => {
+      setReviewReceipt(receipt);
+      setReviewError(null);
+      if (receipt.accepted) {
+        toast.success(`Review stored: ${receipt.classification ?? "recorded"}`);
+        status.refetch();
+        workspace.refetch();
+      } else {
+        toast.error("Review not stored. See the gate failures below.");
+      }
+    },
+    onError: e => {
+      setReviewReceipt(null);
+      setReviewError(e.message);
+      toast.error(e.message);
+    },
+  });
+
+  function prefillReview(c: Candidate) {
+    setReview({
+      ...emptyReviewDraft,
+      identity_key: c.sourceUrl,
+      name: c.name,
+      source_url: c.sourceUrl,
+      role: c.currentRole ?? "",
+      location: c.location ?? "",
+      years_experience: c.yearsExperience ?? null,
+      statement_excerpt: c.signalEvidence ?? "",
+      statement_date: c.signalDate ? c.signalDate.slice(0, 10) : null,
+      date_basis: c.signalDate ? "post_timestamp" : "unknown",
+      run_id: c.runId || null,
+      channel: "discovery",
+    });
+    setReviewReceipt(null);
+    setReviewError(null);
+    setSection("Candidates");
+  }
+
+  function sendReview() {
+    const parsed = reviewSubmissionSchema.safeParse(review);
+    if (!parsed.success) {
+      const first = parsed.error.issues[0];
+      setReviewError(`${first.path.join(".") || "form"}: ${first.message}`);
+      return;
+    }
+    submitReview.mutate(parsed.data);
+  }
 
   const profiles = workspace.data?.profiles ?? [];
 
@@ -691,23 +749,40 @@ export default function RecruitMe() {
           )}
 
           {section === "Candidates" && (
-            <RecruitMeCandidates
-              data={workspace.data}
-              statuses={workspace.data?.statuses ?? {}}
-              saving={workflow.isPending}
-              onStatusChange={(key, status) =>
-                workflow.mutate({
-                  key,
-                  status,
-                  expectedStatus: workspace.data?.statuses[key] ?? "New",
-                })
-              }
-              loading={workspace.isLoading}
-              error={workspace.isError}
-              refresh={() => {
-                workspace.refetch();
-              }}
-            />
+            <>
+              <RecruitMeReview
+                draft={review}
+                onChange={setReview}
+                onSubmit={sendReview}
+                onReset={() => {
+                  setReview(emptyReviewDraft);
+                  setReviewReceipt(null);
+                  setReviewError(null);
+                }}
+                enabled={Boolean(workspace.data?.connection.bridge.reviewReady)}
+                submitting={submitReview.isPending}
+                receipt={reviewReceipt}
+                errorMessage={reviewError}
+              />
+              <RecruitMeCandidates
+                data={workspace.data}
+                statuses={workspace.data?.statuses ?? {}}
+                saving={workflow.isPending}
+                onStatusChange={(key, status) =>
+                  workflow.mutate({
+                    key,
+                    status,
+                    expectedStatus: workspace.data?.statuses[key] ?? "New",
+                  })
+                }
+                onReview={prefillReview}
+                loading={workspace.isLoading}
+                error={workspace.isError}
+                refresh={() => {
+                  workspace.refetch();
+                }}
+              />
+            </>
           )}
 
           <RecruitMePanels

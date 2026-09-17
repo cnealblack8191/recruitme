@@ -417,3 +417,99 @@ describe("RecruitMe staff workspace", () => {
     ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
   });
 });
+
+describe("RecruitMe reviewed-candidate import", () => {
+  const submission = {
+    identity_key: "https://www.linkedin.com/in/jane-doe",
+    name: "Jane Doe",
+    source_url: "https://www.linkedin.com/in/jane-doe",
+    role: "Journeyman electrician",
+    location: "Chamblee, GA",
+    years_experience: 7,
+    field_experience_confirmed: true,
+    statement_excerpt: "#OpenToWork looking for my next commercial project",
+    statement_date: "2026-09-10",
+    date_basis: "post_timestamp" as const,
+    signal_polarity: "POSITIVE_SEEKING" as const,
+    identity_confidence: "confirmed" as const,
+    contradictions_checked: true as const,
+    decision: "A" as const,
+    channel: "linkedin_recruiter" as const,
+  };
+  it("fails closed without a review bridge command", async () => {
+    await expect(
+      caller("admin").submitReview(submission)
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(caller("user").submitReview(submission)).rejects.toMatchObject(
+      { code: "FORBIDDEN" }
+    );
+  });
+  it("rejects incomplete submissions before contacting the worker", async () => {
+    process.env.RECRUITME_BRIDGE_ENABLED = "true";
+    process.env.RECRUITME_BRIDGE_REVIEW_CMD = JSON.stringify([
+      process.execPath,
+      writeSnapshotBridgeCommand({ accepted: true, candidateId: "never" }),
+    ]);
+    for (const bad of [
+      { statement_date: null },
+      { contradictions_checked: false },
+      { source_url: "javascript:alert(1)" },
+      { decision: "C" },
+      { signal_polarity: "yes" },
+    ]) {
+      await expect(
+        caller("admin").submitReview({ ...submission, ...bad } as never)
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    }
+    expect((await caller("admin").workspace()).reviewAudit).toEqual([]);
+    delete process.env.RECRUITME_BRIDGE_REVIEW_CMD;
+  });
+  it("stores the worker receipt and audits the reviewer, including gate failures", async () => {
+    process.env.RECRUITME_BRIDGE_ENABLED = "true";
+    const echo = path.join(dir, "review-echo.cjs");
+    fs.writeFileSync(
+      echo,
+      `let raw='';process.stdin.on('data',d=>raw+=d);process.stdin.on('end',()=>{const p=JSON.parse(raw);const s=p.submission;
+       if(p.action!=='review'||s.reviewer!=='staff-1'||s.decision!=='A'){console.log(JSON.stringify({accepted:false,errors:['bad payload '+JSON.stringify(p)]}));return;}
+       console.log(JSON.stringify({accepted:true,candidateId:'cand-1',runId:'review-abc',classification:'FULLY_QUALIFIED',score:100,blockers:[],decision:'A'}));});`,
+      { mode: 0o700 }
+    );
+    process.env.RECRUITME_BRIDGE_REVIEW_CMD = JSON.stringify([
+      process.execPath,
+      echo,
+    ]);
+    const receipt = await caller("admin").submitReview({
+      ...submission,
+      reviewer: "spoofed-reviewer",
+    });
+    expect(receipt).toMatchObject({
+      accepted: true,
+      candidateId: "cand-1",
+      classification: "FULLY_QUALIFIED",
+    });
+    const rejected = path.join(dir, "review-reject.cjs");
+    fs.writeFileSync(
+      rejected,
+      `process.stdin.on('data',()=>{});console.log(JSON.stringify({accepted:false,runId:'review-def',decision:'A',errors:['A/B import requires full evidence-based commercial qualification: No sufficient verified job-change signal within 30 days']}));`,
+      { mode: 0o700 }
+    );
+    process.env.RECRUITME_BRIDGE_REVIEW_CMD = JSON.stringify([
+      process.execPath,
+      rejected,
+    ]);
+    const failed = await caller("admin").submitReview(submission);
+    expect(failed.accepted).toBe(false);
+    expect(failed.errors?.[0]).toContain("within 30 days");
+    const audit = (await caller("admin").workspace()).reviewAudit;
+    expect(audit).toHaveLength(2);
+    expect(audit[0]).toMatchObject({
+      actor: 1,
+      decision: "A",
+      accepted: true,
+      candidateId: "cand-1",
+    });
+    expect(audit[1]).toMatchObject({ accepted: false, candidateId: null });
+    expect((await caller("admin").workspace()).connection.bridge.reviewReady).toBe(true);
+    delete process.env.RECRUITME_BRIDGE_REVIEW_CMD;
+  });
+});

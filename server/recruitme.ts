@@ -11,6 +11,10 @@ import {
   type JobProfile,
 } from "../shared/recruitme";
 import { sourceCatalog } from "../shared/recruitmeSources";
+import {
+  reviewReceiptSchema,
+  reviewSubmissionSchema,
+} from "../shared/recruitmeReview";
 import { readSnapshot, snapshotSchema } from "./recruitmeSnapshot";
 
 // One server process owns this small POC store. Worker budgets remain authoritative
@@ -49,6 +53,19 @@ const storeSchema = z.object({
       })
     )
     .default([]),
+  reviewAudit: z
+    .array(
+      z.object({
+        at: z.string(),
+        actor: z.number(),
+        identityKey: z.string(),
+        decision: z.string(),
+        accepted: z.boolean(),
+        candidateId: z.string().nullable(),
+        classification: z.string().nullable(),
+      })
+    )
+    .default([]),
 });
 
 function location() {
@@ -64,6 +81,7 @@ function getBridgeConfig() {
     stopCommand: parseCommand(process.env.RECRUITME_BRIDGE_STOP_CMD),
     statusCommand: parseCommand(process.env.RECRUITME_BRIDGE_STATUS_CMD),
     connectCommand: parseCommand(process.env.RECRUITME_BRIDGE_CONNECT_CMD),
+    reviewCommand: parseCommand(process.env.RECRUITME_BRIDGE_REVIEW_CMD),
     snapshotCommand: parseCommand(process.env.RECRUITME_BRIDGE_SNAPSHOT_CMD),
     allowedProfileIds: new Set(
       (process.env.RECRUITME_BRIDGE_ALLOWED_PROFILE_IDS || "")
@@ -104,18 +122,20 @@ function extractLastJsonLine(stdout: string) {
 }
 
 function runBridgeCommand(
-  kind: "launch" | "stop" | "status" | "activate_apollo",
+  kind: "launch" | "stop" | "status" | "activate_apollo" | "review",
   payload: unknown
 ) {
   const cfg = getBridgeConfig();
   const command =
     kind === "activate_apollo"
       ? cfg.connectCommand
-      : kind === "launch"
-        ? cfg.launchCommand
-        : kind === "stop"
-          ? cfg.stopCommand
-          : cfg.statusCommand;
+      : kind === "review"
+        ? cfg.reviewCommand
+        : kind === "launch"
+          ? cfg.launchCommand
+          : kind === "stop"
+            ? cfg.stopCommand
+            : cfg.statusCommand;
   if (!cfg.enabled || !command) {
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
@@ -130,7 +150,9 @@ function runBridgeCommand(
         ? stopPayloadSchema.parse(payload)
         : kind === "activate_apollo"
           ? z.object({ action: z.literal("activate_apollo") }).parse(payload)
-          : statusPayloadSchema.parse(payload);
+          : kind === "review"
+            ? reviewPayloadSchema.parse(payload)
+            : statusPayloadSchema.parse(payload);
 
   const result = spawnSync(command.command, command.args, {
     input: JSON.stringify(validated),
@@ -271,6 +293,19 @@ const statusPayloadSchema = z.object({
   workspaceDir: z.string(),
   requestedAt: z.string(),
 });
+const reviewPayloadSchema = z.object({
+  action: z.literal("review"),
+  submission: reviewSubmissionSchema,
+  workspaceDir: z.string(),
+  requestedAt: z.string(),
+});
+
+function writeStore(store: z.infer<typeof storeSchema>) {
+  fs.mkdirSync(location(), { recursive: true, mode: 0o700 });
+  const temp = path.join(location(), `${randomUUID()}.tmp`);
+  fs.writeFileSync(temp, JSON.stringify(store), { mode: 0o600, flag: "wx" });
+  fs.renameSync(temp, path.join(location(), "profiles.json"));
+}
 const bridgeLaunchOutputSchema = z.object({
   accepted: z.literal(true),
   runId: z.string().min(1),
@@ -404,6 +439,40 @@ export const recruitmeRouter = router({
         );
       return result;
     }),
+  submitReview: adminProcedure
+    .input(reviewSubmissionSchema)
+    .mutation(({ input, ctx }) => {
+      const cfg = getBridgeConfig();
+      if (!cfg.enabled || !cfg.reviewCommand)
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Reviewed-candidate import is not enabled on this server. Set RECRUITME_BRIDGE_REVIEW_CMD.",
+        });
+      // The submission is stored by the worker under its own evidence and
+      // qualification rules; the reviewer's identity travels with it for audit.
+      const payload = reviewPayloadSchema.parse({
+        action: "review",
+        submission: { ...input, reviewer: `staff-${ctx.user.id}` },
+        workspaceDir: location(),
+        requestedAt: new Date().toISOString(),
+      });
+      const receipt = reviewReceiptSchema.parse(
+        runBridgeCommand("review", payload)
+      );
+      const store = readStore();
+      store.reviewAudit.push({
+        at: new Date().toISOString(),
+        actor: ctx.user.id,
+        identityKey: input.identity_key,
+        decision: input.decision,
+        accepted: receipt.accepted,
+        candidateId: receipt.candidateId ?? null,
+        classification: receipt.classification ?? null,
+      });
+      writeStore(store);
+      return receipt;
+    }),
   workspace: adminProcedure.query(() => {
     const snapshot = readSnapshot();
     const connection = bridgeConnectionSummary();
@@ -416,6 +485,9 @@ export const recruitmeRouter = router({
           apolloSetupReady:
             getBridgeConfig().enabled &&
             Boolean(getBridgeConfig().connectCommand),
+          reviewReady:
+            getBridgeConfig().enabled &&
+            Boolean(getBridgeConfig().reviewCommand),
           snapshotPath: path.join(location(), "worker-snapshot.json"),
         },
       },

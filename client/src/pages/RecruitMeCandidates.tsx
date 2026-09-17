@@ -184,6 +184,7 @@ export default function RecruitMeCandidates({
   data,
   statuses,
   onStatusChange,
+  onReview,
   saving = false,
   loading,
   error,
@@ -192,6 +193,8 @@ export default function RecruitMeCandidates({
   data?: Workspace;
   statuses: Record<string, WorkflowStatus>;
   onStatusChange: (key: string, status: WorkflowStatus) => void;
+  /** Prefill the review form from this discovery record. */
+  onReview?: (candidate: Candidate) => void;
   saving?: boolean;
   loading: boolean;
   error: boolean;
@@ -328,6 +331,9 @@ export default function RecruitMeCandidates({
                   </span>
                 </span>
                 <span className="rm-candidate-meta">
+                  {c.reviewDecision && (
+                    <span className="rm-tag">Reviewed · {c.reviewDecision.replace("_", " ")}</span>
+                  )}
                   <span
                     className={`rm-candidate-badge ${c.verified ? "verified" : "unverified"}`}
                   >
@@ -386,6 +392,13 @@ export default function RecruitMeCandidates({
                   Evidence is shown as recorded. Missing information stays
                   unconfirmed.
                 </span>
+                {onReview && (
+                  <DialogClose asChild>
+                    <Button onClick={() => onReview(c)}>
+                      Record my review
+                    </Button>
+                  </DialogClose>
+                )}
                 <DialogClose asChild>
                   <Button variant="outline">Back to candidates</Button>
                 </DialogClose>

@@ -19,7 +19,10 @@ DEFAULT_LOCALITIES = ('Atlanta', 'Marietta', 'Decatur', 'Doraville', 'Lawrencevi
                       'McDonough', 'Monroe', 'Social Circle', 'Cumming', 'Oxford', 'DeKalb County',
                       'Gwinnett County', 'Fulton County', 'Cobb County', 'Newton County', 'Rockdale County')
 DEFAULT_POLICY = {'localities': None, 'maximum_signal_age_days': 90,
-                  'years_minimum': 3, 'years_maximum': 10, 'years_maximum_is_gate': True}
+                  'years_minimum': 3, 'years_maximum': 10, 'years_maximum_is_gate': True,
+                  'role_kind': 'commercial_electrician'}
+ROLE_KINDS = ('commercial_electrician', 'electrical_recruiter')
+HR_TITLE = re.compile(r'\b(recruiter|recruiting|recruitment|talent acquisition|human resources|HR (?:manager|generalist|specialist|coordinator|business partner)|staffing manager|workforce development)\b', re.I)
 POLARITIES = ('POSITIVE_SEEKING', 'NEGATIVE_NOT_SEEKING', 'AMBIGUOUS')
 
 
@@ -87,7 +90,13 @@ def normalize_policy(policy=None):
     lo, hi = p['years_minimum'], p['years_maximum']
     if type(lo) not in (int, float) or type(hi) not in (int, float) or not 0 <= lo <= hi <= 80: raise ValueError('Invalid relevant-year range')
     p['years_maximum_is_gate'] = bool(p['years_maximum_is_gate'])
+    if p['role_kind'] not in ROLE_KINDS: raise ValueError('Unknown role kind')
     return p
+
+
+def role_kind_for(profile):
+    roles = ' '.join(r for t in (profile.get('tracks') or []) for r in (t.get('roles') or []) if isinstance(r, str))
+    return 'electrical_recruiter' if HR_TITLE.search(roles) else 'commercial_electrician'
 
 
 def policy_from_profile(profile):
@@ -98,7 +107,8 @@ def policy_from_profile(profile):
     return normalize_policy({'localities': profile.get('locations') or None,
                              'maximum_signal_age_days': qp.get('maximum_signal_age_days'),
                              'years_minimum': years.get('minimum'), 'years_maximum': years.get('maximum'),
-                             'years_maximum_is_gate': years.get('maximum_is_gate')})
+                             'years_maximum_is_gate': years.get('maximum_is_gate'),
+                             'role_kind': qp.get('role_kind') or role_kind_for(profile)})
 
 
 def signal_polarity(e):
@@ -161,10 +171,16 @@ def assess_candidate(facts, evidence=(), contacts=(), *, as_of=None, policy=None
                            'knowledge_status': state, 'reason': reason, 'fields': list(fields)}
 
     role = str(claims['role']['value'])
-    trade = bool(TRADE.search(role)) and not bool(re.search(r'\b(not|never|recruiting|hiring)\b', role, re.I))
     commercial = str(claims['commercial_experience']['value']).lower() in ('yes', 'true')
-    add('trade_fit', 1 if trade and commercial else 0, ('role', 'commercial_experience'),
-        'Requires an electrical field role AND commercial construction experience; generic electrical titles are insufficient.')
+    if pol['role_kind'] == 'electrical_recruiter':
+        # Dual-experience role: a recruiting/HR title, with confirmed hands-on electrical
+        # field employment recorded in the commercial_experience claim.
+        trade = bool(HR_TITLE.search(role)) and not bool(re.search(r'\b(not|never)\b', role, re.I))
+        fit_reason = 'Requires a recruiting/HR role AND confirmed hands-on electrical field employment; recruiting electricians alone is not field experience.'
+    else:
+        trade = bool(TRADE.search(role)) and not bool(re.search(r'\b(not|never|recruiting|hiring)\b', role, re.I))
+        fit_reason = 'Requires an electrical field role AND commercial construction experience; generic electrical titles are insufficient.'
+    add('trade_fit', 1 if trade and commercial else 0, ('role', 'commercial_experience'), fit_reason)
     years = claims['years_experience']['value']
     valid_years = type(years) in (int, float) and math.isfinite(years) and 0 <= years <= 80
     experience = (1 if lo <= years <= hi else .6 if lo - 1 <= years < lo or hi < years <= hi + 2 else .25) if valid_years else 0
@@ -215,7 +231,7 @@ def assess_candidate(facts, evidence=(), contacts=(), *, as_of=None, policy=None
         'knowledge_status': 'REASONABLE_INFERENCE', 'reason': 'Mean best source reliability across six required claims, including identity: primary/official 1, professional profile .8, secondary .5, snippet .25, unspecified 0. Duplicates add no weight.'}
     blockers = []
     if not isinstance(claims['name']['value'], str) or not claims['name']['value'].strip(): blockers.append('Candidate identity not established')
-    if not trade or not commercial: blockers.append('Commercial electrical trade fit not established')
+    if not trade or not commercial: blockers.append('Commercial electrical trade fit not established' if pol['role_kind'] != 'electrical_recruiter' else 'Recruiting role with hands-on electrical field experience not established')
     if not valid_years or years < lo or (pol['years_maximum_is_gate'] and years > hi): blockers.append('Relevant experience outside target or unknown')
     if not local: blockers.append('Metro Atlanta location not established')
     if not recent: blockers.append(f'No sufficient verified job-change signal within {window} days')

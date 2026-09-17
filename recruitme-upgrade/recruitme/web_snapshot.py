@@ -64,7 +64,16 @@ def reviewed_rows(db, run_id):
                     and date(c['retrieved_at']) and 0 <= (date(q['assessed_as_of']) - date(c['retrieved_at'])).days <= 180]
         value = lambda field: claims[field]['value']
         years = value('years_experience')
+        review = {}
+        try:
+            import json
+            note = json.loads(db.execute('SELECT notes FROM candidates WHERE id=?', (cid,)).fetchone()['notes'] or '{}')
+            review = note.get('review', {}) if isinstance(note, dict) else {}
+        except (ValueError, TypeError):
+            review = {}
         rows.append(dict(id=cid, runId=run_id, name=str(value('name') or 'Identity requires review')[:200],
+            reviewDecision=review.get('decision') if review.get('decision') in ('A', 'B', 'FIT_POOL', 'REJECT') else None,
+            reviewer=str(review.get('reviewer') or '')[:120] or None,
             sourceUrl=links[0]['url'], classification=q['classification'], grade=None,
             verified=q['classification'] == 'FULLY_QUALIFIED',
             fieldEvidence='\n'.join(e['excerpt'] for e in evidence if e['field'] in ('role', 'commercial_experience', 'years_experience'))[:3000],

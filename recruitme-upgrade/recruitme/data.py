@@ -110,8 +110,11 @@ def import_candidate(db, record, *, run_id=None, policy=None):
         if record.get('assessment', {}).get('classification') in ('A', 'B') and assessment['classification'] != 'FULLY_QUALIFIED':
             raise StopRun('A/B import requires full evidence-based commercial qualification: ' + '; '.join(assessment['blockers']))
         reasons = [c['reason'] for c in assessment['components'].values()]
+        notes={'scoring':reasons,'qualification':assessment,'reviewer':reviewer,'operator_notes':record.get('notes',''),'policy':effective}
+        if isinstance(record.get('review'),dict):
+            notes['review']={k:record['review'][k] for k in ('decision','reviewer','reviewed_at','identity_confidence','channel') if k in record['review']}
         db.execute('UPDATE candidates SET qualification_score=?,confidence_score=?,contactability=?,notes=? WHERE id=?',
-                   (assessment['score'],assessment['confidence_score'],'PUBLIC_ROUTE_FOUND' if assessment['components']['contact']['score'] else 'UNKNOWN',json.dumps({'scoring':reasons,'qualification':assessment,'reviewer':reviewer,'operator_notes':record.get('notes',''),'policy':effective}),cid))
+                   (assessment['score'],assessment['confidence_score'],'PUBLIC_ROUTE_FOUND' if assessment['components']['contact']['score'] else 'UNKNOWN',json.dumps(notes),cid))
         db.execute('COMMIT')
     except BaseException:
         db.execute('ROLLBACK'); raise
