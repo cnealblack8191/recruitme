@@ -34,16 +34,17 @@ def next_plan(state, provider):
             used = state['followups'].get(packet['source_url'], 0)
             if used >= 3:
                 continue
-            # Preserve the known source as an anchor; same-name hits never merge people.
+            # Fetch the page itself when a content route allows it, then anchored name
+            # searches; the source URL stays the target, never a search term. Same-name
+            # hits never merge people.
             terms = ('recruiting work history skilled trades',
                      'personal seeking employment original post date',
                      'Metro Atlanta relocation Covington availability salary')[used]
-            q = f'{packet["source_url"]} "{packet["name_hint"]}" {terms}'[:500]
-            if any(x['query'] == q for x in state['queries']):
+            from .discovery import followup_plan
+            candidate = followup_plan(state, packet, used, terms, strategy='recruiter_evidence_review', provider=provider)
+            if not candidate or any(x['query'] == candidate['query'] for x in state['queries']):
                 continue
-            return dict(query=q, purpose='corroboration/contact', strategy='recruiter_evidence_review',
-                        target=packet['source_url'], provider=provider,
-                        options={'exclude_domains': RESTRICTED})
+            return candidate
     i = state['discovery_index']; branch = i % 6
     role = ROLES[(i//6) % len(ROLES)]
     places = ['Atlanta Georgia', 'Covington Georgia', 'Metro Atlanta'] + p['locations']

@@ -74,12 +74,13 @@ def next_plan(state, provider):
             terms=('electrician electrical field work history recruiter human resources',
                    '"open to work" "seeking" original post date current location',
                    'technical interviews skills assessment pay rates relocation')
-            query=f'"{packet["name_hint"]}" {packet["source_url"]} {terms[used]}'[:500]
-            if any(q.get('query')==query for q in state['queries']):
+            from .discovery import followup_plan
+            candidate=followup_plan(state,packet,used,terms[used],strategy='dual_experience_review',provider=p['discovery_provider'])
+            if not candidate or any(q.get('query')==candidate['query'] for q in state['queries']):
                 continue
-            return dict(query=query,purpose='corroboration/contact',strategy='dual_experience_review',
-                        target=packet['source_url'],provider=p['discovery_provider'],options={},
-                        source_family='person_evidence_followup',source_access='public_index_only')
+            if not candidate.get('content_provider'):
+                candidate.update(source_family='person_evidence_followup',source_access='public_index_only')
+            return candidate
     role=ROLES[(i//4)%len(ROLES)]; field=FIELD_ROLES[(i//len(ROLES))%len(FIELD_ROLES)]
     # Three local discovery queries for every Southeast query. No national search.
     regional=i%4==3

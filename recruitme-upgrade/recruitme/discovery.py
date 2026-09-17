@@ -72,11 +72,45 @@ def page_key(url):
 
 
 def followup_anchor(packet):
-    """Name plus observed locality limits namesake matches; identity stays unverified."""
+    """Name plus observed locality limits namesake matches; identity stays unverified.
+
+    Without a name hint there is nothing a search engine can anchor on, so the
+    caller skips the search follow-up rather than pasting a URL into a query.
+    """
     if not packet.get('name_hint'):
-        return packet['source_url']
+        return None
     places=packet.get('discovery_evidence',{}).get('local_place_mentions',[])
-    return '"'+packet['name_hint']+'"'+(' '+places[0]+' Georgia' if places else '')
+    locality=places[0]+' Georgia' if places else (packet.get('location_hint') or packet.get('southeast_location_hint') or '')
+    return ('"'+packet['name_hint']+'" '+locality).strip()
+
+
+def content_route_for(state, url):
+    """First enabled single-URL content adapter whose operator allowlist covers this host."""
+    host=(urlsplit(url).hostname or '').lower()
+    for name,domains in (state.get('content_routes') or {}).items():
+        if any(host==d or host.endswith('.'+d) for d in domains):
+            return name
+    return None
+
+
+def followup_plan(state, packet, used, terms, strategy='candidate_followup', provider=None):
+    """Fetch the page itself first, then anchored name searches; never a URL as a search term.
+
+    Returns None when neither a content route nor a name anchor exists.
+    """
+    url=packet['source_url']
+    if used==0:
+        route=content_route_for(state,url)
+        if route:
+            return dict(query=url,purpose='corroboration/contact',strategy='profile_content',target=url,
+                        provider=None,content_provider=route,options={},source_family='profile_content',
+                        source_access='public_page_fetch')
+    anchor=followup_anchor(packet)
+    if not anchor:
+        return None
+    plan_=dict(query=(anchor+' '+terms)[:500],purpose='corroboration/contact',strategy=strategy,target=url,options={})
+    if provider:plan_['provider']=provider
+    return plan_
 
 
 def date_status(value, as_of):

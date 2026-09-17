@@ -71,10 +71,10 @@ def next_plan(state):
             terms=('work history experience','current availability seeking employment','public resume and contact recency',
                    'professional contact location earliest start','last 30 days availability update',
                    'Atlanta metro commercial electrical role')[used%6]
-            from .discovery import followup_anchor
-            q=f'{followup_anchor(packet)} {state["job_profile"]["tracks"][0]["roles"][0]} {terms}'[:500]
-            if any(x['query']==q for x in state['queries']):continue
-            return dict(query=q,purpose='corroboration/contact',strategy='candidate_followup',target=packet['source_url'],provider=provider,options={'exclude_domains':RESTRICTED})
+            from .discovery import followup_plan
+            candidate=followup_plan(state,packet,used,f'{state["job_profile"]["tracks"][0]["roles"][0]} {terms}',provider=provider)
+            if not candidate or any(x['query']==candidate['query'] for x in state['queries']):continue
+            return candidate
     return dict(discovery(state,20+state['discovery_index']),provider=provider)
 
 def apply_screen(packet,profile):
@@ -108,10 +108,10 @@ def broad_plan(state,provider):
             if used>=3:continue
             terms=('Atlanta electrical experience','seeking work availability date','professional contact Georgia',
                    'recent resume update','commercial project completion date','immediate start willingness')[used]
-            from .discovery import followup_anchor
-            q=f'{followup_anchor(packet)} {terms}'[:500]
-            if any(x['query']==q for x in state['queries']):continue
-            return dict(query=q,purpose='corroboration/contact',strategy='new_person_review',target=packet['source_url'],provider=provider,options={'exclude_domains':RESTRICTED})
+            from .discovery import followup_plan
+            candidate=followup_plan(state,packet,used,terms,strategy='new_person_review',provider=provider)
+            if not candidate or any(x['query']==candidate['query'] for x in state['queries']):continue
+            return candidate
     i=state['discovery_index'];branch=i%8
     from .discovery import electrical_profile, plan
     if electrical_profile(p):

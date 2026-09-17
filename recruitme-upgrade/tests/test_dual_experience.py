@@ -89,3 +89,13 @@ class DualExperience(unittest.TestCase):
         self.assertTrue(p['dual_experience_hint']);self.assertEqual(p['candidate_grade_hint'],'B')
         q=self.packet('Talent Acquisition Partner Atlanta Georgia\n## Experience\n### Interior Electrician (12R)\nUS Army\n2014 - 2019')
         self.assertTrue(q['dual_experience_hint'])
+    def test_followup_never_pastes_url_into_query(self):
+        s=new_state();s.update(job_profile=self.profile,search_as_of='2026-09-11',queries=[{'query':'a'},{'query':'b'}])
+        p=self.packet('Recruiter Atlanta Georgia. Former electrician. Open to work.')
+        s['packets'][p['source_url']]=p
+        q=next_plan(s,'tavily')
+        self.assertEqual(q['strategy'],'dual_experience_review');self.assertEqual(q['target'],p['source_url'])
+        self.assertNotIn('http',q['query']);self.assertIn('Jane Smith',q['query']);self.assertIn('Atlanta',q['query'])
+        nameless=dict(p,name_hint=None,source_url='https://www.linkedin.com/in/unknown')
+        s['packets']={nameless['source_url']:nameless}
+        self.assertNotEqual(next_plan(s,'tavily')['purpose'],'corroboration/contact')

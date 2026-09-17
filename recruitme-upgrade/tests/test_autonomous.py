@@ -115,6 +115,44 @@ class Autonomous(unittest.TestCase):
             self.assertEqual(l.db.execute('SELECT COUNT(*) FROM autonomous_checkpoints').fetchone()[0],1)
             l.db.close()
 
+    def test_content_routes_require_price_credentials_and_allowlist(self):
+        from recruitme.autonomous import content_routes
+        c=configuration()
+        c['providers']['exa_contents']={'enabled':True,'approved':True,'price_version':'exa_contents-2026-09-12','operations':{'search':'0.001'},'allowed_domains':['linkedin.com']}
+        c['providers']['tavily_extract']={'enabled':True,'approved':True,'price_version':'tavily_extract-2026-09-12','operations':{'search':'0.008'},'allowed_domains':['postjobfree.com']}
+        c['providers']['bright_data']={'enabled':True,'approved':True,'price_version':'stale','operations':{'search':'0.0015'},'allowed_domains':['linkedin.com']}
+        with patch('recruitme.plugins.ExaContents.credentials_available',return_value=True),patch('recruitme.plugins.TavilyExtract.credentials_available',return_value=False):
+            self.assertEqual(content_routes(c),{'exa_contents':['linkedin.com']})
+        c['providers']['exa_contents']['allowed_domains']=[]
+        with patch('recruitme.plugins.ExaContents.credentials_available',return_value=True):
+            self.assertEqual(content_routes(c),{})
+
+    def test_profile_content_followup_dispatches_to_content_adapter_not_search(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            c=configuration();l=Ledger(Path(tmp)/'db',c);l.create_run('content','2')
+            searched=[];fetched=[]
+            class FakeSearch:
+                def search(inner,query,*a,**k):
+                    searched.append(query);return {'provider_response':{'results':[self.fixture()]},'provider':'fake'}
+            class FakeContent:
+                last_observed_at=None
+                def __init__(inner,*a):pass
+                def search(inner,url,count):
+                    fetched.append((url,count));return {'provider_response':{'results':[self.fixture(text='Full profile text. Commercial electrician 8 years. Open to work.')]},'provider':'exa_contents'}
+            calls=[]
+            def guard():
+                calls.append(1)
+                if len(calls)>4:raise StopRun('SYNTHETIC_GUARD')
+            with patch('recruitme.autonomous.CONTENT_PLUGINS',{'exa_contents':FakeContent}),patch('recruitme.autonomous.content_routes',return_value={'exa_contents':['example.org']}):
+                execute(l,'content',tmp,{},guard,client=FakeSearch(),sleep=lambda n:None)
+            saved=json.loads((Path(tmp)/'results/content.json').read_text())
+            self.assertEqual(fetched,[('https://example.org/jane',1)])
+            self.assertFalse(any(q.startswith('http') for q in searched))
+            fetch=[q for q in saved['queries'] if q.get('content_provider')]
+            self.assertEqual(len(fetch),1);self.assertEqual(fetch[0]['provider'],'exa_contents');self.assertEqual(fetch[0]['target'],'https://example.org/jane')
+            self.assertGreaterEqual(saved['unique_pages'],1)
+            l.db.close()
+
     @unittest.skipUnless(os.name=='posix','Requires Linux signal timers; mandatory on EC2')
     def test_service_termination_saves_exact_reason(self):
         import signal

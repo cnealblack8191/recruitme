@@ -15,9 +15,9 @@ from .connectors import ExaFree
 from .exa_keyed import ExaKeyed
 from .tavily import Tavily
 from .routing import ProviderRouter
-from .plugins import DISCOVERY_PLUGINS
+from .plugins import DISCOVERY_PLUGINS, CONTENT_PLUGINS
 from .data import canonical_url
-from .discovery import annotate, page_key
+from .discovery import annotate, page_key, followup_plan
 
 ROLES=('commercial electrician','journeyman electrician','electrical foreman','electrical superintendent',
        'electrical project manager','journeyman wireman','lead electrician','industrial electrician',
@@ -161,14 +161,11 @@ def next_query(state):
         for p in pool:
             used=state['followups'].get(p['source_url'],0)
             if used>=3:continue
-            person=p['name_hint']
-            if used==0:q=p['source_url']+' electrician experience employment availability'
-            elif person and used==1:q='"'+person+'" electrician commercial industrial employer work history'
-            elif person:q='"'+person+'" electrician "open to work" professional contact location'
-            else:q=p['source_url']+' recent resume seeking work location professional contact'
-            q=q[:500]
-            if q in {r['query'] for r in state['queries']}:continue
-            return dict(query=q,purpose='corroboration/contact',strategy='candidate_followup',target=p['source_url'])
+            terms=('electrician experience employment availability','electrician commercial industrial employer work history',
+                   'electrician "open to work" professional contact location')[used]
+            candidate=followup_plan(state,p,used,terms)
+            if not candidate or candidate['query'] in {r['query'] for r in state['queries']}:continue
+            return candidate
     i=state['discovery_index'];block=count//20
     strategy,source=SOURCES[block%len(SOURCES)]
     location=GEORGIA[i%len(GEORGIA)] if count<60 or i%3==0 else REGIONS[(i//3)%len(REGIONS)]
@@ -188,13 +185,11 @@ def focused_query(state):
         for p in pool:
             used=state['followups'].get(p['source_url'],0)
             if used>=3:continue
-            person=p['name_hint']
-            anchor=('"'+person+'" '+str(state.get('seed_locations',{}).get(p['source_url'],''))) if person else p['source_url']
-            suffix=('electrician commercial projects employer work history',
+            suffix=(str(state.get('seed_locations',{}).get(p['source_url'],''))+' electrician commercial projects employer work history',
                     'electrician latest "looking for work" "hired" '+state['focus_month'],
                     'electrician professional contact availability location')
-            q=(anchor+' '+suffix[used])[:500]
-            if q not in seen:return dict(query=q,purpose='corroboration/contact',strategy='candidate_followup',target=p['source_url'])
+            candidate=followup_plan(state,p,used,suffix[used].strip())
+            if candidate and candidate['query'] not in seen:return candidate
     i=state['discovery_index'];block=count//20
     roles=('commercial electrician','working electrical foreman','journeyman electrician','lead electrician','service electrician','journeyman wireman')
     signals=('I am looking for work','available to start','laid off','looking for another company','my project ends','available Monday','seeking employment','looking for my next project','open to work','who is hiring electricians')
@@ -267,12 +262,35 @@ def structured_providers(config):
     return names
 
 
+def content_routes(config):
+    """Enabled, approved, priced, credentialed single-URL adapters and their operator allowlists.
+
+    Cheapest first. Coresignal is excluded here: its collect route is structured, not a page fetch.
+    """
+    routes=[]
+    today=datetime.date.today()
+    for name,cls in CONTENT_PLUGINS.items():
+        p=config.get('providers',{}).get(name,{})
+        if name=='coresignal' or not p.get('enabled') or not p.get('approved') or 'search' not in p.get('operations',{}):continue
+        try:version,expires=cls.name+'-2026-09-12',datetime.date.fromisoformat(__import__('recruitme.plugins',fromlist=['EXPIRES']).EXPIRES)
+        except ValueError:continue
+        if p.get('price_version')!=version or today>=expires:continue
+        cost=money(p['operations']['search'])
+        if cost and not config.get('paid_enabled'):continue
+        domains=[d for d in p.get('allowed_domains',[]) if isinstance(d,str) and d]
+        if not domains:continue
+        ready=getattr(cls,'credentials_available',None)
+        if ready and not ready(p):continue
+        routes.append((cost,name,domains))
+    return {name:domains for _,name,domains in sorted(routes)}
+
+
 def web_policy_plan(state, candidate, config):
     """Free-first planning keeps variation and resumes exact pending requests."""
     if state.get('pending'):
         return state['pending']
-    if candidate.get('source_family')=='structured_people':
-        # Structured queries are provider-specific; free-first substitution would send JSON to a web index.
+    if candidate.get('source_family') in ('structured_people','profile_content'):
+        # Provider-specific plans: free-first substitution would send JSON or a bare URL to a web index.
         return dict(candidate)
     candidate=dict(candidate)
     candidate.pop('provider',None)
@@ -320,10 +338,12 @@ def execute(ledger,run_id,state_path,job,guard,client=None,sleep=time.sleep):
         from .profiles import validate
         now=datetime.datetime.now(datetime.timezone.utc).date()
         state.update(job_profile=validate(job['job_profile']),improved=True,search_as_of=now.isoformat(),
-                     structured_providers=structured_providers(ledger.config))
+                     structured_providers=structured_providers(ledger.config),content_routes=content_routes(ledger.config))
     if not saved and job.get('search_version',ledger.config.get('search_version'))=='intent-v2':
         now=datetime.datetime.now(datetime.timezone.utc).date()
         state.update(improved=True,search_as_of=now.isoformat(),focus_month=now.strftime('%B %Y'),focus_range='last 180 days')
+    if not saved and 'content_routes' not in state:
+        state['content_routes']=content_routes(ledger.config)
     if not saved and job.get('focus')=='recent_jobseekers':
         now=datetime.datetime.now(datetime.timezone.utc).date()
         state.update(focused=True,focus_month=now.strftime('%B %Y'),
@@ -349,6 +369,13 @@ def execute(ledger,run_id,state_path,job,guard,client=None,sleep=time.sleep):
     old_term=signal.signal(signal.SIGTERM,expired)
     signal.setitimer(signal.ITIMER_REAL,max(0.001,runtime['session_deadline']-time.time()))
     client=client or ProviderRouter(ledger,run_id,guard,DISCOVERY_PLUGINS)
+    content_clients={}
+    def fetch_content(plan):
+        name=plan['content_provider']
+        if name not in content_clients:
+            content_clients[name]=CONTENT_PLUGINS[name](ledger,run_id,guard)
+        receipt=content_clients[name].search(plan['query'],1)
+        return receipt,getattr(content_clients[name],'last_observed_at',None)
     def checkpoint():
         ledger.db.execute('INSERT INTO autonomous_checkpoints VALUES(?,?) ON CONFLICT(run_id) DO UPDATE SET state_json=excluded.state_json',(run_id,json.dumps(state)))
         packets=sorted(state['packets'].values(),key=lambda p:-p['review_priority'])
@@ -391,12 +418,16 @@ def execute(ledger,run_id,state_path,job,guard,client=None,sleep=time.sleep):
             if ledger.config.get('web_search_policy'):
                 plan=web_policy_plan(state,plan,ledger.config)
             state['pending']=plan;checkpoint()
-            if state.get('improved'):
+            observed=None
+            if plan.get('content_provider'):
+                response,observed=fetch_content(plan)
+                plan['provider']=plan['content_provider']
+            elif state.get('improved'):
                 response=client.search(plan['query'],10,options=plan.get('options'),provider=plan.get('provider',job.get('provider')))
             else:response=client.search(plan['query'],5)
-            if ledger.config.get('web_search_policy'):
+            if ledger.config.get('web_search_policy') and not plan.get('content_provider'):
                 plan['provider']=response.get('provider','exa_free')
-            stamp=datetime.datetime.fromtimestamp(getattr(client,'last_observed_at',None) or time.time(),datetime.timezone.utc).isoformat()
+            stamp=datetime.datetime.fromtimestamp(observed or getattr(client,'last_observed_at',None) or time.time(),datetime.timezone.utc).isoformat()
             raw_path=evidence/('search-'+str(len(state['queries']))+'.json')
             atomic_json(raw_path,{'query':plan['query'],'retrieved_at':stamp,'response':response,'untrusted_data':True})
             consume(state,plan,response,stamp,raw_path)

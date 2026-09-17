@@ -44,8 +44,14 @@ class RecruiterProfile(unittest.TestCase):
             self.assertNotIn('nationwide',text)
             self.assertNotIn('roadtechs',text)
             if q['options'].get('start_date'):self.assertEqual(q['options']['start_date'],'2026-08-11')
-    def test_followup_keeps_source_anchor(self):
+    def test_followup_targets_source_without_using_url_as_search_term(self):
         s=new_state();s.update(job_profile=self.p,search_as_of='2026-09-10',queries=[{'query':'a'},{'query':'b'}])
         p=self.packet('Construction recruiter Atlanta. Open to work. Skilled trades.')
         s['packets'][p['source_url']]=p
-        self.assertIn(p['source_url'],next_plan(s)['query'])
+        q=next_plan(s)
+        self.assertEqual(q['target'],p['source_url'])
+        self.assertNotIn(p['source_url'],q['query']);self.assertIn(p['name_hint'],q['query'])
+        # With a content route covering the host, the first follow-up fetches the page itself.
+        s['content_routes']={'exa_contents':['example.org']}
+        q=next_plan(s)
+        self.assertEqual((q['query'],q['content_provider'],q['strategy']),(p['source_url'],'exa_contents','profile_content'))

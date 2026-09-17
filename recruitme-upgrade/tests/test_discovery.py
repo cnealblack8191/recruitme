@@ -103,8 +103,14 @@ class DiscoveryTests(unittest.TestCase):
         s['queries']=[{'query':'previous'}]*41
         p=next_plan(s)
         self.assertIn('"Jane Doe" Doraville Georgia',p['query'])
+        self.assertNotIn('example.org',p['query'])
         self.assertEqual(p['target'],packet['source_url'])
         self.assertFalse(packet['identity_confirmed'])
+        s['content_routes']={'tavily_extract':['example.org']}
+        first=next_plan(s)
+        self.assertEqual((first['query'],first['content_provider']),(packet['source_url'],'tavily_extract'))
+        s['followups'][packet['source_url']]=1
+        self.assertNotIn('content_provider',next_plan(s))
 
     def test_annotations_do_not_change_scoring_or_classification(self):
         r=self.result();p=screen(r);before=copy.deepcopy(p)
