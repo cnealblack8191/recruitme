@@ -41,16 +41,17 @@ def discovery(state,index):
     place=p['locations'][(index//len(roles)+index)%len(p['locations'])]
     suffix=('',p['fit_terms'][index%len(p['fit_terms'])],'recent personal availability','public professional resume')[branch]
     options={'exclude_domains':RESTRICTED}
-    now=datetime.date.fromisoformat(state['search_as_of'])
-    if branch!=3:
-        options.update(start_date=(now-datetime.timedelta(days=(30,90,180)[branch])).isoformat(),end_date=now.isoformat())
     role_phrase = {
         'local_availability':f'"{role}" "{signal}" "{place}" "{suffix}"',
         'task_resume':'"'+role+'" "recent resume" '+place+' "'+suffix+'"',
         'employer_change':role+' '+signal+' '+place+' "'+suffix+'" "project transition"',
         'relocation_or_undated':role+' '+signal+' '+place+' "'+suffix+'" "mobility signals"',
     }[strategy]
-    return dict(query=role_phrase[:500],purpose='discovery',strategy=strategy,track=track,target=None,options=options)
+    result=dict(query=role_phrase[:500],purpose='discovery',strategy=strategy,track=track,target=None,options=options)
+    if branch!=3:
+        from .discovery import recency_filter
+        result['recency_filter']=recency_filter(state['search_as_of'],(30,90,180)[branch])
+    return result
 
 def next_plan(state):
     if state['pending']:return state['pending']

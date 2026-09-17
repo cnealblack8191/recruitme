@@ -3,46 +3,54 @@
 Only existing metered provider clients dispatch requests. This module does no I/O.
 Source selection never relaxes geography, evidence rules, or spending limits.
 """
-VERSION = '2026-09-10.1'
-# Ordered for early coverage of personal intent; open web retains independent sites.
+VERSION = '2026-09-17.1'
+# (id, domain, audience, in_default_rotation). Routes outside the default rotation
+# stay selectable through an explicit profile source_ids list. Social feeds,
+# publishing platforms and recruiter trade press rarely index a dated,
+# first-person availability statement, so they no longer consume default budget.
 SOURCES = (
-    ('open_web', '', 'all'),
-    ('linkedin', 'linkedin.com', 'all'),
-    ('facebook_public', 'facebook.com', 'all'),
-    ('reddit', 'reddit.com', 'all'),
-    ('postjobfree', 'postjobfree.com', 'all'),
-    ('jobcase', 'jobcase.com', 'all'),
-    ('craigslist_atlanta', 'atlanta.craigslist.org', 'all'),
-    ('x_public', 'x.com', 'all'),
-    ('instagram_public', 'instagram.com', 'all'),
-    ('threads_public', 'threads.com', 'all'),
-    ('bluesky_public', 'bsky.app', 'all'),
-    ('shrm_atlanta', 'shrmatlanta.org', 'recruiter'),
-    ('recruiting_brainfood', 'recruitingbrainfood.com', 'recruiter'),
-    ('ere', 'ere.net', 'recruiter'),
-    ('recruiting_daily', 'recruitingdaily.com', 'recruiter'),
-    ('ihirehr', 'ihirehr.com', 'recruiter'),
-    ('indeed_public', 'indeed.com', 'all'),
-    ('monster_public', 'monster.com', 'all'),
-    ('careerbuilder_public', 'careerbuilder.com', 'all'),
-    ('ziprecruiter_public', 'ziprecruiter.com', 'all'),
-    ('ladders_public', 'theladders.com', 'all'),
-    ('resume_library_public', 'resume-library.com', 'all'),
-    ('bebee_public', 'bebee.com', 'all'),
-    ('about_me', 'about.me', 'all'),
-    ('medium', 'medium.com', 'all'),
-    ('substack', 'substack.com', 'all'),
-    ('wordpress', 'wordpress.com', 'all'),
-    ('roadtechs', 'roadtechs.com', 'field'),
-    ('electrician_talk', 'electriciantalk.com', 'field'),
-    ('contractor_talk', 'contractortalk.com', 'field'),
+    ('open_web', '', 'all', True),
+    ('linkedin', 'linkedin.com', 'all', True),
+    ('postjobfree', 'postjobfree.com', 'all', True),
+    ('jobcase', 'jobcase.com', 'all', True),
+    ('craigslist_atlanta', 'atlanta.craigslist.org', 'all', True),
+    ('reddit', 'reddit.com', 'all', True),
+    ('indeed_public', 'indeed.com', 'all', True),
+    ('ziprecruiter_public', 'ziprecruiter.com', 'all', True),
+    ('roadtechs', 'roadtechs.com', 'field', True),
+    ('electrician_talk', 'electriciantalk.com', 'field', True),
+    ('contractor_talk', 'contractortalk.com', 'field', True),
+    ('monster_public', 'monster.com', 'all', False),
+    ('careerbuilder_public', 'careerbuilder.com', 'all', False),
+    ('resume_library_public', 'resume-library.com', 'all', False),
+    ('bebee_public', 'bebee.com', 'all', False),
+    ('facebook_public', 'facebook.com', 'all', False),
+    ('x_public', 'x.com', 'all', False),
+    ('instagram_public', 'instagram.com', 'all', False),
+    ('threads_public', 'threads.com', 'all', False),
+    ('bluesky_public', 'bsky.app', 'all', False),
+    ('ladders_public', 'theladders.com', 'all', False),
+    ('about_me', 'about.me', 'all', False),
+    ('medium', 'medium.com', 'all', False),
+    ('substack', 'substack.com', 'all', False),
+    ('wordpress', 'wordpress.com', 'all', False),
+    ('shrm_atlanta', 'shrmatlanta.org', 'recruiter', False),
+    ('recruiting_brainfood', 'recruitingbrainfood.com', 'recruiter', False),
+    ('ere', 'ere.net', 'recruiter', False),
+    ('recruiting_daily', 'recruitingdaily.com', 'recruiter', False),
+    ('ihirehr', 'ihirehr.com', 'recruiter', False),
 )
+# Domains whose indexed pages are dated posts, so a publication-date window is a
+# usable recency proxy. Profile pages (LinkedIn /in/) and the open web are not.
+DATED_DOMAINS = frozenset(('postjobfree.com', 'jobcase.com', 'atlanta.craigslist.org', 'reddit.com',
+                           'roadtechs.com', 'electriciantalk.com', 'contractortalk.com', 'x.com',
+                           'bsky.app', 'threads.com'))
 
 
 def routes(audience, selected=None):
-    available = [s for s in SOURCES if s[2] in ('all', audience)]
+    available = [s[:3] for s in SOURCES if s[2] in ('all', audience)]
     if selected is None:
-        return available
+        return [s[:3] for s in SOURCES if s[2] in ('all', audience) and s[3]]
     if not isinstance(selected, list) or not selected or any(not isinstance(s, str) for s in selected):
         raise ValueError('source_ids must be a nonempty list of source IDs')
     known = {s[0] for s in available}
@@ -65,6 +73,11 @@ def apply_route(plan, index, audience, profile=None):
     if domain:
         options['include_domains'] = [domain]
         plan['query'] = ('site:' + domain + ' ' + plan['query'])[:500]
+    window = plan.get('recency_filter')
+    if window and domain in DATED_DOMAINS:
+        options.update(start_date=window['start_date'], end_date=window['end_date'])
+    else:
+        options.pop('start_date', None); options.pop('end_date', None)
     if plan.get('provider') in ('exa_keyed', 'tavily'):
         plan['provider'] = ('exa_keyed', 'tavily')[(index % len(candidates) + index // len(candidates)) % 2]
     plan.update(options=options, source_family=source_id,

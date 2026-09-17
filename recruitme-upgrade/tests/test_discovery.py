@@ -47,14 +47,26 @@ class DiscoveryTests(unittest.TestCase):
         for year in range(3,11):self.assertTrue(any(f'"{year} years"' in q for q in queries))
         self.assertEqual(sum('years' in q for q in queries),8)
 
-    def test_date_windows_and_undated_branch(self):
+    def test_date_windows_are_hints_applied_only_on_dated_post_domains(self):
+        from recruitme.source_registry import apply_route, routes, DATED_DOMAINS
         s=self.state()
         for i,days in enumerate((30,90,180,None)):
-            options=plan(s,i)['options']
-            if days is None:self.assertNotIn('start_date',options)
+            candidate=plan(s,i)
+            # Publication filters never ride on the plan itself: keyword engines and profile pages get undated queries.
+            self.assertEqual(candidate['options'],{})
+            if days is None:self.assertNotIn('recency_filter',candidate)
             else:
-                self.assertEqual(options['end_date'],'2026-09-13')
-                self.assertEqual(options['start_date'],(datetime.date(2026,9,13)-datetime.timedelta(days=days)).isoformat())
+                self.assertEqual(candidate['recency_filter']['end_date'],'2026-09-13')
+                self.assertEqual(candidate['recency_filter']['start_date'],(datetime.date(2026,9,13)-datetime.timedelta(days=days)).isoformat())
+        dated=undated=0
+        for index,(source_id,domain,_) in enumerate(routes('field')):
+            routed=apply_route(plan(s,0),index,'field')
+            if domain in DATED_DOMAINS:
+                dated+=1;self.assertEqual(routed['options']['start_date'],'2026-08-14',source_id)
+            else:
+                undated+=1;self.assertNotIn('start_date',routed['options'],source_id)
+        self.assertGreater(dated,0);self.assertGreater(undated,0)
+        self.assertNotIn('start_date',apply_route(plan(s,0),1,'field')['options'])  # linkedin profiles stay undated
 
     def test_profile_and_broad_search_use_saved_geography(self):
         s=self.state();s['job_profile']=self.profile()

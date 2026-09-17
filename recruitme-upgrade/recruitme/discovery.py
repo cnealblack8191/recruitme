@@ -44,14 +44,20 @@ def plan(state, index=None, profile=None, undated=False):
         f'{role} "{signal}" {place} {task} resume',
         f'{role} {place} {task} professional resume "{signal}"',
     )
-    options = {}
+    # Publication dates are unreliable for profile pages and unsupported by the
+    # keyword engines, so the window travels as a hint. The source registry applies
+    # it only on domains whose pages are dated posts (see DATED_DOMAINS).
+    plan_ = dict(query=queries[branch][:500], purpose='discovery', target=None,
+                 strategy=('recent_availability','recent_resumes','transition_180_days','undated_review')[branch],
+                 options={})
     if not undated and branch != 3:
-        now = datetime.date.fromisoformat(state['search_as_of'])
-        options.update(start_date=(now - datetime.timedelta(days=(30,90,180)[branch])).isoformat(),
-                       end_date=now.isoformat())
-    return dict(query=queries[branch][:500], purpose='discovery', target=None,
-                strategy=('recent_availability','recent_resumes','transition_180_days','undated_review')[branch],
-                options=options)
+        plan_['recency_filter'] = recency_filter(state['search_as_of'], (30,90,180)[branch])
+    return plan_
+
+
+def recency_filter(as_of, days):
+    now = datetime.date.fromisoformat(as_of)
+    return dict(start_date=(now - datetime.timedelta(days=days)).isoformat(), end_date=now.isoformat(), days=days)
 
 
 def page_key(url):

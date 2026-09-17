@@ -1,8 +1,10 @@
 # Permanent public source coverage
 
-Registry: `recruitme/source_registry.py`, version 2026-09-10.1.
+Registry: `recruitme/source_registry.py`, version 2026-09-17.1.
 
-30 discovery routes: 27 available to the Covington recruiting profile; 24 to field profiles. One route replaces each scheduled discovery query; there is no request fan-out, new provider subscription, budget increase, or automatic next run. A limited run may stop before all routes are attempted. Each route rotates across Exa and Tavily on subsequent cycles. Open-web discovery also covers independent sites.
+30 registered routes. Since 2026-09-17 only 11 field routes and 8 recruiter routes are in the default rotation: open web, LinkedIn, PostJobFree, Jobcase, Atlanta Craigslist, Reddit, Indeed, ZipRecruiter, plus Roadtechs, ElectricianTalk and ContractorTalk for field profiles. Social feeds, publishing platforms, résumé aggregators and recruiter trade press remain registered and selectable through an explicit `source_ids` list but no longer consume default budget, because public indexes rarely hold a dated first-person availability statement from them. One route replaces each scheduled discovery query; there is no request fan-out, new provider subscription, budget increase, or automatic next run. A limited run may stop before all routes are attempted. Each route rotates across Exa and Tavily on subsequent cycles. Open-web discovery also covers independent sites.
+
+Publication-date windows are hints (`recency_filter`) that the registry applies only on domains whose indexed pages are dated posts (`DATED_DOMAINS`: PostJobFree, Jobcase, Craigslist, Reddit, Roadtechs, the two trade forums, X, Bluesky, Threads). LinkedIn profile pages and the open web are searched undated so keyword engines (Brave, Google via SerpAPI) can serve them; freshness is recorded by screening, never assumed from the filter.
 
 Routes include LinkedIn, Facebook, Reddit, PostJobFree, Jobcase, Atlanta Craigslist, X, Instagram, Threads, Bluesky, Indeed, Monster, CareerBuilder, ZipRecruiter, Ladders, Resume Library, beBee, About.me, Medium, Substack and WordPress. Recruiter-specific routes add SHRM-Atlanta, Recruiting Brainfood, ERE, Recruiting Daily and iHireHR. Field-specific routes add Roadtechs, ElectricianTalk and ContractorTalk.
 

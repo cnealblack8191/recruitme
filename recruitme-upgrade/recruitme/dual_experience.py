@@ -87,18 +87,20 @@ def next_plan(state, provider):
     variant=(i//8)%4
     query=(f'"{role}" "{field}" {place} '+
            ('experience resume','career background','previous experience','work history')[variant])
-    options={}
+    options={}; window=None
     if regional:
         query += ' '+('"willing to relocate"','"open to work"','"open to relocation"','"seeking employment"')[(i//4)%4]
     elif i%8==2:
         query += ' "open to work"'
-        now=datetime.date.fromisoformat(state['search_as_of'])
-        options={'start_date':(now-datetime.timedelta(days=30)).isoformat(),'end_date':now.isoformat()}
+        from .discovery import recency_filter
+        window=recency_filter(state['search_as_of'],30)
     # Weight LinkedIn and open web; smaller routes still participate without fan-out.
-    weighted=('linkedin','open_web','linkedin','postjobfree','linkedin','open_web','jobcase','shrm_atlanta')
+    weighted=('linkedin','open_web','linkedin','postjobfree','linkedin','open_web','jobcase','indeed_public')
     source=weighted[(i//4+i)%len(weighted)]
-    result=apply_route(dict(query=query[:500],purpose='discovery',strategy='dual_southeast' if regional else 'dual_local',
-                           target=None,provider=provider,options=options),0,'recruiter',{'source_ids':[source]})
+    candidate=dict(query=query[:500],purpose='discovery',strategy='dual_southeast' if regional else 'dual_local',
+                   target=None,provider=provider,options=options)
+    if window:candidate['recency_filter']=window
+    result=apply_route(candidate,0,'recruiter',{'source_ids':[source]})
     result['provider']=p['discovery_provider']
     result['screening_version']=VERSION
     return result

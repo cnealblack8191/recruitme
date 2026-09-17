@@ -24,10 +24,9 @@ def next_plan(state, provider):
         from .dual_experience import next_plan as dual_plan
         return dual_plan(state, provider)
     p = state['job_profile']; n = len(state['queries'])
-    now = datetime.date.fromisoformat(state['search_as_of'])
-    options = {'exclude_domains': RESTRICTED,
-               'start_date': (now-datetime.timedelta(days=30)).isoformat(),
-               'end_date': now.isoformat()}
+    from .discovery import recency_filter
+    options = {'exclude_domains': RESTRICTED}
+    window = recency_filter(state['search_as_of'], 30)
     if n % 3 == 2:
         for packet in sorted(state['packets'].values(), key=lambda x: -x['review_priority']):
             if packet.get('classification') != 'C — Provisional' or not packet.get('name_hint'):
@@ -63,11 +62,13 @@ def next_plan(state, provider):
     else:
         query = f'"{role}" resume "{signal}" {place}'
         # Undated discovery is background only; never a confirmed fresh signal.
-        options = {'exclude_domains': RESTRICTED}
-    return apply_route(dict(query=query[:500], purpose='discovery',
+        window = None
+    candidate = dict(query=query[:500], purpose='discovery',
                 strategy=('recruiter_local_intent','trades_recruiter_intent','atlanta_relocation_intent',
                           'atlanta_move_intent','electrical_preference','recruiter_undated_background')[branch],
-                target=None, provider=provider, options=options), i, 'recruiter', p)
+                target=None, provider=provider, options=options)
+    if window: candidate['recency_filter'] = window
+    return apply_route(candidate, i, 'recruiter', p)
 
 
 def apply_screen(packet, profile):
