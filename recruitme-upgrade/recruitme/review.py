@@ -14,7 +14,7 @@ from .budget import StopRun
 from .qualification import POLARITIES, QUALITY, normalize_policy, public_url
 
 VERSION = 'review-form-2026-09-17'
-DECISIONS = ('A', 'B', 'FIT_POOL', 'REJECT')
+DECISIONS = ('A', 'B', 'FIT_POOL', 'REJECT', 'APPLICANT')
 DATE_BASES = ('post_timestamp', 'resume_updated', 'application', 'stated_in_text', 'unknown')
 IDENTITY = ('confirmed', 'probable', 'namesake_risk')
 SOURCE_TYPES = tuple(k for k in QUALITY if k != 'unknown')

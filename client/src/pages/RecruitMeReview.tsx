@@ -18,6 +18,7 @@ const labels = {
     B: "B · Verified seeker, fit needs detail",
     FIT_POOL: "Fit pool · good fit, no verified seeking signal",
     REJECT: "Reject · not a fit or not this person",
+    APPLICANT: "Applicant · applied through the portal, fit review pending",
   },
   polarity: {
     POSITIVE_SEEKING: "Wants work (positive)",

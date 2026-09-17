@@ -513,3 +513,28 @@ describe("RecruitMe reviewed-candidate import", () => {
     delete process.env.RECRUITME_BRIDGE_REVIEW_CMD;
   });
 });
+
+describe("RecruitMe applicant import", () => {
+  it("fails closed without bridge, portal address or database", async () => {
+    await expect(
+      caller("admin").importApplicants({ role: "Commercial electrician" })
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    process.env.RECRUITME_BRIDGE_ENABLED = "true";
+    process.env.RECRUITME_BRIDGE_REVIEW_CMD = JSON.stringify([process.execPath, writeSnapshotBridgeCommand({ accepted: true, candidateId: "x" })]);
+    const oldBase = process.env.RECRUITME_PORTAL_BASE_URL;
+    const oldDb = process.env.DATABASE_URL;
+    delete process.env.RECRUITME_PORTAL_BASE_URL;
+    await expect(
+      caller("admin").importApplicants({ role: "Commercial electrician" })
+    ).rejects.toMatchObject({ message: expect.stringContaining("RECRUITME_PORTAL_BASE_URL") });
+    process.env.RECRUITME_PORTAL_BASE_URL = "https://hire.ecinc.us";
+    delete process.env.DATABASE_URL;
+    await expect(
+      caller("admin").importApplicants({ role: "Commercial electrician" })
+    ).rejects.toMatchObject({ message: expect.stringContaining("database is not available") });
+    expect((await caller("admin").workspace()).applicantWatermark).toBe(0);
+    if (oldBase === undefined) delete process.env.RECRUITME_PORTAL_BASE_URL; else process.env.RECRUITME_PORTAL_BASE_URL = oldBase;
+    if (oldDb !== undefined) process.env.DATABASE_URL = oldDb;
+    delete process.env.RECRUITME_BRIDGE_REVIEW_CMD;
+  });
+});

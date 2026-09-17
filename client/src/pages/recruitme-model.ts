@@ -22,7 +22,7 @@ export type Candidate = Workspace["candidates"][number] & {
   status?: WorkflowStatus;
   evidenceLinks?: { label: string; url: string }[];
   contactRoutes?: { label: string; url: string }[];
-  reviewDecision?: "A" | "B" | "FIT_POOL" | "REJECT" | null;
+  reviewDecision?: "A" | "B" | "FIT_POOL" | "REJECT" | "APPLICANT" | null;
   reviewer?: string | null;
 };
 export function safeLink(value: string, contact = false): string | undefined {

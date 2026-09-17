@@ -86,7 +86,7 @@ def import_candidate(db, record, *, run_id=None, policy=None):
                        (cid,e['field'],json.dumps(e.get('value')),canonical_url(e['source_url']),e['excerpt'],e['retrieved_at'],e['status'],e['independence_group']))
             # Additional provenance is append-only. Agent review cannot attest facts.
             metadata = {k:e[k] for k in ('knowledge_status','source_type','subject_confirmed',
-                        'original_date','original_date_verified','signal_polarity','date_basis','identity_confidence') if k in e}
+                        'original_date','original_date_verified','signal_polarity','date_basis','identity_confidence','system_recorded') if k in e}
             metadata['human_verified'] = record.get('reviewed_by_human') is True and e.get('human_verified') is True
             eid = db.execute('SELECT id,value FROM evidence WHERE candidate_id=? AND field=? AND source_url=? AND excerpt=?',
                              (cid,e['field'],canonical_url(e['source_url']),e['excerpt'])).fetchone()

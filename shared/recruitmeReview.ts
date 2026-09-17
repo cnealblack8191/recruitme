@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** Controlled vocabularies shared with the worker's recruitme/review.py. */
-export const reviewDecisions = ["A", "B", "FIT_POOL", "REJECT"] as const;
+export const reviewDecisions = ["A", "B", "FIT_POOL", "REJECT", "APPLICANT"] as const;
 export const signalPolarities = [
   "POSITIVE_SEEKING",
   "NEGATIVE_NOT_SEEKING",
@@ -33,6 +33,7 @@ export const reviewChannels = [
 ] as const;
 export const sourceTypes = [
   "first_party",
+  "first_party_submission",
   "official_record",
   "professional_profile",
   "secondary",

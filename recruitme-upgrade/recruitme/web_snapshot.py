@@ -72,7 +72,7 @@ def reviewed_rows(db, run_id):
         except (ValueError, TypeError):
             review = {}
         rows.append(dict(id=cid, runId=run_id, name=str(value('name') or 'Identity requires review')[:200],
-            reviewDecision=review.get('decision') if review.get('decision') in ('A', 'B', 'FIT_POOL', 'REJECT') else None,
+            reviewDecision=review.get('decision') if review.get('decision') in ('A', 'B', 'FIT_POOL', 'REJECT', 'APPLICANT') else None,
             reviewer=str(review.get('reviewer') or '')[:120] or None,
             sourceUrl=links[0]['url'], classification=q['classification'], grade=None,
             verified=q['classification'] == 'FULLY_QUALIFIED',

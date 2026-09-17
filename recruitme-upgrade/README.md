@@ -22,6 +22,8 @@ RECRUITME_BRIDGE_STATUS_CMD
 RECRUITME_BRIDGE_REVIEW_CMD   # ["node","/path/to/recruitme-worker-bridge.js","review"]
 ```
 
+The same `review` command carries Candidate Portal applications. `importApplicants` on the web server reads new portal registrations (past a stored watermark) and forwards each as a `candidate_portal` submission with decision `APPLICANT`; `recruitme/applicants.py` marks only the seeking signal verified (the portal's own timestamp) so applicants land as PROVISIONAL until a recruiter confirms fit in the review form. It needs `RECRUITME_PORTAL_BASE_URL` (public portal address used as the evidence URL) and the portal `DATABASE_URL`; applicant emails never leave the portal.
+
 `review` runs `review_import_remote.py` on the worker. It takes one recruiter-form submission (see `shared/recruitmeReview.ts` and `recruitme/review.py`), converts it into a reviewed import with per-evidence human attestations, stores it under a zero-budget `review-*` run, associates it with the discovery run the reviewer was viewing, and returns the qualification result. An A or B decision is stored only when every gate passes; otherwise the worker rolls back and returns the failing gates so the reviewer can downgrade to `FIT_POOL`. Identity confidence below `confirmed` keeps every claim an inference. The active job's profile (`/etc/recruitme/first-search.json`) supplies the localities, signal window and role kind; a submission may narrow them.
 
 Recommended runtime wiring:

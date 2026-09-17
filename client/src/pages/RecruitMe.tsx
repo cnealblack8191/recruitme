@@ -129,6 +129,28 @@ export default function RecruitMe() {
     },
   });
 
+  const importApplicants = trpc.recruitme.importApplicants.useMutation({
+    onSuccess: result => {
+      toast.success(
+        result.imported
+          ? `${result.imported} portal applicant${result.imported === 1 ? "" : "s"} recorded as verified seekers pending fit review`
+          : "No new portal applicants to import"
+      );
+      status.refetch();
+      workspace.refetch();
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  function importPortalApplicants() {
+    const role = draft?.roles.split(/[,;]/)[0]?.trim() || profiles[0]?.roles.split(/[,;]/)[0]?.trim();
+    if (!role) {
+      toast.error("Open the job profile the applicants applied for first.");
+      return;
+    }
+    importApplicants.mutate({ role, title: draft?.title || profiles[0]?.title, runId: null });
+  }
+
   function prefillReview(c: Candidate) {
     setReview({
       ...emptyReviewDraft,
@@ -750,6 +772,16 @@ export default function RecruitMe() {
 
           {section === "Candidates" && (
             <>
+              <div className="rm-actions">
+                <Button
+                  variant="outline"
+                  onClick={importPortalApplicants}
+                  disabled={!workspace.data?.connection.bridge.reviewReady || importApplicants.isPending}
+                >
+                  <Download size={16} />
+                  {importApplicants.isPending ? "Importing applicants…" : "Import new Candidate Portal applicants"}
+                </Button>
+              </div>
               <RecruitMeReview
                 draft={review}
                 onChange={setReview}

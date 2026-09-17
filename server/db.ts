@@ -156,6 +156,25 @@ export async function setCandidateResume(
     .where(eq(candidates.id, candidateId));
 }
 
+/** Portal registrations after a watermark id, oldest first; null when no database is configured. */
+export async function listCandidatesAfter(afterId: number, limit: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const { gt, asc } = await import("drizzle-orm");
+  return db
+    .select({
+      id: candidates.id,
+      fullName: candidates.fullName,
+      email: candidates.email,
+      resumeUrl: candidates.resumeUrl,
+      createdAt: candidates.createdAt,
+    })
+    .from(candidates)
+    .where(gt(candidates.id, afterId))
+    .orderBy(asc(candidates.id))
+    .limit(limit);
+}
+
 export async function getCandidateById(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

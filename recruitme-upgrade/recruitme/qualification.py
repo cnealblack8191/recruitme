@@ -50,7 +50,7 @@ NEGATIVE = re.compile(r'\b(?:not (?:currently )?(?:open|looking|seeking|availabl
                       r'accepted (?:a |an |the |my )?(?:new )?(?:offer|job|position|role)|got hired|(?:was|been) hired|'
                       r'(?:started|starting) (?:a |my )?new (?:job|position|role)|found (?:a |my )?(?:new )?(?:job|position)|'
                       r'off the market)\b', re.I)
-QUALITY = {'first_party': 1.0, 'official_record': 1.0, 'professional_profile': .8,
+QUALITY = {'first_party': 1.0, 'first_party_submission': 1.0, 'official_record': 1.0, 'professional_profile': .8,
            'secondary': .5, 'search_snippet': .25, 'unknown': .0}
 
 
@@ -145,7 +145,12 @@ def assess_candidate(facts, evidence=(), contacts=(), *, as_of=None, policy=None
         if e.get('status') not in ('CLAIMED', 'CORROBORATED') or not public_url(e.get('source_url')) or not e.get('excerpt') or observed is None or observed > today:
             continue
         e['quality'] = QUALITY.get(e.get('source_type'), 0)
-        e['knowledge'] = ('VERIFIED_FACT' if e.get('human_verified') is True
+        # A human attestation verifies a claim. The one exception: the act of applying,
+        # recorded by ECI's own portal with its server timestamp, verifies the seeking
+        # signal alone; name, role, years and location stay the applicant's claims.
+        system_recorded = (e.get('source_type') == 'first_party_submission' and e.get('system_recorded') is True
+                           and e.get('field') == 'availability_signal')
+        e['knowledge'] = ('VERIFIED_FACT' if (e.get('human_verified') is True or system_recorded)
                           and e.get('knowledge_status') == 'VERIFIED_FACT' and e['quality'] >= .8
                           else 'REASONABLE_INFERENCE')
         rows.append(e)

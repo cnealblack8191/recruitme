@@ -16,6 +16,7 @@ import {
   reviewSubmissionSchema,
 } from "../shared/recruitmeReview";
 import { readSnapshot, snapshotSchema } from "./recruitmeSnapshot";
+import { applicantSubmission } from "./recruitmeApplicants";
 
 // One server process owns this small POC store. Worker budgets remain authoritative
 // on EC2; these editable profile preferences can never change its ledger.
@@ -53,6 +54,8 @@ const storeSchema = z.object({
       })
     )
     .default([]),
+  /** Highest portal candidate id already forwarded to the worker as an applicant. */
+  applicantWatermark: z.number().int().nonnegative().default(0),
   reviewAudit: z
     .array(
       z.object({
@@ -472,6 +475,74 @@ export const recruitmeRouter = router({
       });
       writeStore(store);
       return receipt;
+    }),
+  importApplicants: adminProcedure
+    .input(
+      z.object({
+        role: z.string().trim().min(2).max(300),
+        title: z.string().trim().max(200).optional(),
+        runId: z.string().max(100).nullable().default(null),
+        limit: z.number().int().min(1).max(50).default(25),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const cfg = getBridgeConfig();
+      if (!cfg.enabled || !cfg.reviewCommand)
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Reviewed-candidate import is not enabled on this server. Set RECRUITME_BRIDGE_REVIEW_CMD.",
+        });
+      const base = process.env.RECRUITME_PORTAL_BASE_URL;
+      if (!base)
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Set RECRUITME_PORTAL_BASE_URL to the public Candidate Portal address.",
+        });
+      const { listCandidatesAfter } = await import("./db");
+      const store = readStore();
+      const rows = await listCandidatesAfter(store.applicantWatermark, input.limit);
+      if (rows === null)
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Candidate Portal database is not available on this server.",
+        });
+      const results: { candidatePortalId: number; accepted: boolean; classification: string | null; errors: string[] }[] = [];
+      let watermark = store.applicantWatermark;
+      for (const row of rows) {
+        const submission = reviewSubmissionSchema.parse({
+          ...applicantSubmission(row, { role: input.role, title: input.title, runId: input.runId }, base),
+          reviewer: `portal-intake-by-staff-${ctx.user.id}`,
+        });
+        const payload = reviewPayloadSchema.parse({
+          action: "review",
+          submission,
+          workspaceDir: location(),
+          requestedAt: new Date().toISOString(),
+        });
+        const receipt = reviewReceiptSchema.parse(runBridgeCommand("review", payload));
+        results.push({
+          candidatePortalId: row.id,
+          accepted: receipt.accepted,
+          classification: receipt.classification ?? null,
+          errors: receipt.errors ?? [],
+        });
+        store.reviewAudit.push({
+          at: new Date().toISOString(),
+          actor: ctx.user.id,
+          identityKey: submission.identity_key,
+          decision: "APPLICANT",
+          accepted: receipt.accepted,
+          candidateId: receipt.candidateId ?? null,
+          classification: receipt.classification ?? null,
+        });
+        // Advance past stored rows only; a rejected row is retried on the next import.
+        if (receipt.accepted) watermark = Math.max(watermark, row.id);
+        else break;
+      }
+      store.applicantWatermark = watermark;
+      writeStore(store);
+      return { imported: results.filter(r => r.accepted).length, results, watermark };
     }),
   workspace: adminProcedure.query(() => {
     const snapshot = readSnapshot();
