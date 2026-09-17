@@ -182,6 +182,78 @@ class Qualification(unittest.TestCase):
         r = record(); before = copy.deepcopy(r); evaluate(r)
         self.assertEqual(r, before)
 
+    def test_common_seeking_phrasings_qualify(self):
+        for signal in ('#OpenToWork', 'opentowork', 'Actively seeking new opportunities', 'Looking for a new opportunity',
+                       'Available immediately', 'Looking for my next project', 'Back on the job market', 'Job hunting again',
+                       'Interested in your electrician position'):
+            with self.subTest(signal=signal):
+                r = record(); change(r, 'availability_signal', signal)
+                self.assertEqual(evaluate(r)['classification'], 'FULLY_QUALIFIED')
+
+    def test_no_longer_with_employer_is_not_negative(self):
+        r = record(); change(r, 'availability_signal', 'No longer with ABC Electric as of Friday, open to work')
+        q = evaluate(r)
+        self.assertEqual(q['classification'], 'FULLY_QUALIFIED')
+        self.assertFalse(q['claims']['availability_signal']['conflict'])
+
+    def test_reviewer_polarity_overrides_regex(self):
+        r = record(); change(r, 'availability_signal', 'Just got laid off, looking')
+        self.assertEqual(evaluate(r)['classification'], 'RESEARCH_ONLY')
+        r['evidence'][-1]['signal_polarity'] = 'POSITIVE_SEEKING'
+        self.assertEqual(evaluate(r)['classification'], 'FULLY_QUALIFIED')
+        r = record(); r['evidence'][-1]['signal_polarity'] = 'NEGATIVE_NOT_SEEKING'
+        q = evaluate(r)
+        self.assertEqual(q['components']['job_change']['score'], 0)
+        self.assertTrue(q['claims']['availability_signal']['conflict'])
+        r = record(); r['evidence'][-1]['signal_polarity'] = 'AMBIGUOUS'
+        self.assertEqual(evaluate(r)['classification'], 'RESEARCH_ONLY')
+
+    def test_profile_localities_pass_default_geography(self):
+        for location in ('Chamblee, GA', 'Brookhaven, Georgia', 'DeKalb County, Georgia', 'Snellville GA', 'Newton County, GA'):
+            with self.subTest(location=location):
+                r = record(); change(r, 'location', location)
+                self.assertEqual(evaluate(r)['components']['geography']['score'], 15)
+
+    def test_policy_localities_replace_defaults(self):
+        policy = {'localities': ['Savannah Georgia', 'Pooler Georgia']}
+        r = record(); change(r, 'location', 'Savannah, GA')
+        self.assertEqual(assess_candidate(r['facts'], r['evidence'], r['contacts'], as_of=TODAY, policy=policy)['classification'], 'FULLY_QUALIFIED')
+        r = record()
+        self.assertEqual(assess_candidate(r['facts'], r['evidence'], r['contacts'], as_of=TODAY, policy=policy)['components']['geography']['score'], 0)
+        for bad in ({'localities': []}, {'localities': 'Atlanta'}, {'maximum_signal_age_days': 0}, {'maximum_signal_age_days': '30'}, {'years_minimum': 12, 'years_maximum': 10}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                assess_candidate(r['facts'], r['evidence'], r['contacts'], as_of=TODAY, policy=bad)
+
+    def test_policy_signal_window_is_the_gate(self):
+        policy = {'maximum_signal_age_days': 30}
+        for age, qualified, points in [(30, True, 10), (31, False, 0), (45, False, 0)]:
+            with self.subTest(age=age):
+                r = record(); r['evidence'][-1]['original_date'] = (dt.date.fromisoformat(TODAY)-dt.timedelta(days=age)).isoformat()
+                q = assess_candidate(r['facts'], r['evidence'], r['contacts'], as_of=TODAY, policy=policy)
+                self.assertEqual(q['classification'] == 'FULLY_QUALIFIED', qualified)
+                self.assertEqual(q['components']['freshness']['score'], points)
+                if not qualified: self.assertIn('within 30 days', '; '.join(q['blockers']))
+
+    def test_year_ceiling_can_be_preference_instead_of_gate(self):
+        r = record(); change(r, 'years_experience', 15)
+        self.assertNotEqual(evaluate(r)['classification'], 'FULLY_QUALIFIED')
+        q = assess_candidate(r['facts'], r['evidence'], r['contacts'], as_of=TODAY, policy={'years_maximum_is_gate': False})
+        self.assertEqual(q['classification'], 'FULLY_QUALIFIED')
+        self.assertEqual(q['components']['experience']['score'], 3.75)
+        change(r, 'years_experience', 2)
+        self.assertNotEqual(assess_candidate(r['facts'], r['evidence'], r['contacts'], as_of=TODAY, policy={'years_maximum_is_gate': False})['classification'], 'FULLY_QUALIFIED')
+
+    def test_policy_from_saved_profiles(self):
+        from recruitme.qualification import policy_from_profile
+        import pathlib
+        covington = json.loads(pathlib.Path(__file__).resolve().parents[1].joinpath('profiles', 'covington-dual-experience-search.json').read_text())
+        pol = policy_from_profile(covington)
+        self.assertEqual(pol['maximum_signal_age_days'], 30)
+        self.assertIn('Chamblee Georgia', pol['localities'])
+        self.assertTrue(pol['years_maximum_is_gate'])
+        self.assertIsNone(policy_from_profile(None))
+        self.assertEqual(policy_from_profile({'locations': ['Atlanta Georgia']})['maximum_signal_age_days'], 90)
+
 
 class QualificationStorage(unittest.TestCase):
     def setUp(self):
@@ -229,6 +301,29 @@ class QualificationStorage(unittest.TestCase):
         r['assessment'] = {'classification': 'A'}
         with self.assertRaises(StopRun): data.import_candidate(self.db, r)
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM candidates').fetchone()[0], 0)
+
+    def test_policy_persists_and_governs_reassessment(self):
+        r = record(); r['evidence'][-1]['original_date'] = (dt.date.fromisoformat(TODAY)-dt.timedelta(days=45)).isoformat()
+        cid = data.import_candidate(self.db, r, policy={'maximum_signal_age_days': 30})
+        q = data.candidate_assessment(self.db, cid, as_of=TODAY)
+        self.assertEqual(q['classification'], 'RESEARCH_ONLY')
+        self.assertEqual(q['policy']['maximum_signal_age_days'], 30)
+        self.assertEqual(data.report(self.db, 'test', as_of=TODAY)['candidates'][0]['qualification']['classification'], 'RESEARCH_ONLY')
+        # Re-import without a policy keeps the stored one rather than reverting to defaults.
+        data.import_candidate(self.db, r)
+        self.assertEqual(data.candidate_assessment(self.db, cid, as_of=TODAY)['policy']['maximum_signal_age_days'], 30)
+        other = record(); other['identity_key'] = 'default-policy'
+        other['evidence'][-1]['original_date'] = r['evidence'][-1]['original_date']
+        cid2 = data.import_candidate(self.db, other)
+        self.assertEqual(data.candidate_assessment(self.db, cid2, as_of=TODAY)['classification'], 'FULLY_QUALIFIED')
+
+    def test_review_annotations_persist(self):
+        r = record(); r['evidence'][-1].update(signal_polarity='POSITIVE_SEEKING', date_basis='post_timestamp', identity_confidence='confirmed')
+        change(r, 'availability_signal', 'Just got laid off, looking')
+        cid = data.import_candidate(self.db, r)
+        self.assertEqual(data.candidate_assessment(self.db, cid, as_of=TODAY)['classification'], 'FULLY_QUALIFIED')
+        stored = [json.loads(a['metadata_json']) for a in self.db.execute('SELECT metadata_json FROM qualification_annotations')]
+        self.assertTrue(any(a.get('date_basis') == 'post_timestamp' and a.get('identity_confidence') == 'confirmed' for a in stored))
 
     def test_legacy_database_initialization_additive(self):
         r = record()

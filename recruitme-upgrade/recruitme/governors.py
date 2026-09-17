@@ -142,7 +142,7 @@ class Governance:
         count=self.db.execute("SELECT COUNT(*) FROM qualified_progress WHERE runtime_id=? AND classification IN ('A','B')",(runtime['id'],)).fetchone()[0]
         if target and count>=target[0]:raise StopRun('CANDIDATE_TARGET_REACHED')
 
-    def record_qualification(self, run_id, identity_key, assessment):
+    def record_qualification(self, run_id, identity_key, assessment, policy=None):
         runtime=self.runtime_for(run_id)
         if not runtime or not identity_key:raise StopRun('Qualification requires runtime and stable identity')
         classification=assessment.get('classification')
@@ -156,7 +156,12 @@ class Governance:
                 raise StopRun('A/B requires dated recruiting evidence')
             try:age=(datetime.datetime.now(datetime.timezone.utc).date()-datetime.date.fromisoformat(assessment['signal_date'])).days
             except ValueError:raise StopRun('Invalid recruiting-signal date') from None
-            if age<0 or age>365 or (age>180 and not assessment.get('compelling_freshness_evidence')):
+            # The run policy's signal window is the single recency rule when supplied;
+            # the legacy 365/180-day rule only applies to jobs without a profile.
+            window=int(policy['maximum_signal_age_days']) if policy and policy.get('maximum_signal_age_days') else None
+            if window is not None:
+                if age<0 or age>window:raise StopRun('Recruiting signal older than the run policy window of '+str(window)+' days')
+            elif age<0 or age>365 or (age>180 and not assessment.get('compelling_freshness_evidence')):
                 raise StopRun('Recruiting signal insufficiently current for A/B')
         self.db.execute('INSERT INTO qualified_progress VALUES(?,?,?,?) ON CONFLICT(runtime_id,identity_key) DO UPDATE SET classification=excluded.classification,evidence_json=excluded.evidence_json',
                         (runtime['id'],identity_key,classification,json.dumps(assessment)))

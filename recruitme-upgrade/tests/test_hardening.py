@@ -208,3 +208,24 @@ class Hardening(unittest.TestCase):
         self.assertEqual(self.l.db.execute('SELECT id FROM operations').fetchone()[0],op)
         self.assertEqual(self.l.db.execute("SELECT COUNT(*) FROM audit WHERE event='DEADLINE_COLLISION_REPAIRED'").fetchone()[0],1)
         with self.assertRaises(sqlite3.IntegrityError):self.l.db.execute("UPDATE runs SET deadline=9999 WHERE id='run3-fixture'")
+
+class PolicyWindow(unittest.TestCase):
+    def test_governor_uses_run_policy_window(self):
+        import tempfile,datetime
+        from pathlib import Path
+        from test_foundation import configuration
+        from recruitme.budget import Ledger,StopRun
+        tmp=tempfile.TemporaryDirectory()
+        try:
+            l=Ledger(Path(tmp.name)/'db',configuration());l.create_run('t','1')
+            today=datetime.datetime.now(datetime.timezone.utc).date()
+            base=dict(classification='A',signal_subject_confirmed=True,signal_date_verified=True,contradictions_checked=True,
+                      reviewed=True,trade_fit=True,identified_person=True,geographic_fit=True,recruiting_signal='open to work',source_urls=['https://example.org'])
+            old=dict(base,signal_date=(today-datetime.timedelta(days=45)).isoformat())
+            l.record_qualification('t','legacy-ok',old)  # legacy 365/180 rule accepts 45 days
+            with self.assertRaises(StopRun):
+                l.record_qualification('t','policy-blocks',old,policy={'maximum_signal_age_days':30})
+            l.record_qualification('t','policy-ok',dict(base,signal_date=(today-datetime.timedelta(days=20)).isoformat()),policy={'maximum_signal_age_days':30})
+            self.assertEqual(l.db.execute("SELECT COUNT(*) FROM qualified_progress WHERE classification='A'").fetchone()[0],2)
+        finally:
+            l.db.close();tmp.cleanup()

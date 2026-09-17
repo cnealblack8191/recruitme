@@ -4,7 +4,7 @@ import json
 import re
 from urllib.parse import urlsplit, urlunsplit
 from .budget import StopRun
-from .qualification import assess_candidate, ranking_key
+from .qualification import assess_candidate, ranking_key, normalize_policy
 
 FIELDS = {'name','location','current_employer','previous_employer','role','years_experience',
           'commercial_experience','specialties','availability_signal','signal_date'}
@@ -51,7 +51,7 @@ def initialize(db):
     ''')
 
 
-def import_candidate(db, record, *, run_id=None):
+def import_candidate(db, record, *, run_id=None, policy=None):
     """Only explicitly reviewed structured records can identify a research lead.
 
     Search hits are NOT automatically promoted to candidates or used to infer facts.
@@ -86,7 +86,7 @@ def import_candidate(db, record, *, run_id=None):
                        (cid,e['field'],json.dumps(e.get('value')),canonical_url(e['source_url']),e['excerpt'],e['retrieved_at'],e['status'],e['independence_group']))
             # Additional provenance is append-only. Agent review cannot attest facts.
             metadata = {k:e[k] for k in ('knowledge_status','source_type','subject_confirmed',
-                        'original_date','original_date_verified') if k in e}
+                        'original_date','original_date_verified','signal_polarity','date_basis','identity_confidence') if k in e}
             metadata['human_verified'] = record.get('reviewed_by_human') is True and e.get('human_verified') is True
             eid = db.execute('SELECT id,value FROM evidence WHERE candidate_id=? AND field=? AND source_url=? AND excerpt=?',
                              (cid,e['field'],canonical_url(e['source_url']),e['excerpt'])).fetchone()
@@ -102,12 +102,16 @@ def import_candidate(db, record, *, run_id=None):
                 raise StopRun('Contact must be a public professional route')
             db.execute('INSERT OR IGNORE INTO contacts(candidate_id,route_type,value,source_url,retrieved_at,status) VALUES(?,?,?,?,?,?)',
                        (cid,c['route_type'],c['value'],canonical_url(c['source_url']),c['retrieved_at'],c['status']))
-        assessment = candidate_assessment(db, cid)
+        # The run's policy travels with the candidate so re-assessment on read
+        # applies the same localities and signal window the reviewer worked under.
+        stored = stored_policy(db, cid)
+        effective = normalize_policy(policy) if policy is not None else stored
+        assessment = candidate_assessment(db, cid, policy=effective)
         if record.get('assessment', {}).get('classification') in ('A', 'B') and assessment['classification'] != 'FULLY_QUALIFIED':
             raise StopRun('A/B import requires full evidence-based commercial qualification: ' + '; '.join(assessment['blockers']))
         reasons = [c['reason'] for c in assessment['components'].values()]
         db.execute('UPDATE candidates SET qualification_score=?,confidence_score=?,contactability=?,notes=? WHERE id=?',
-                   (assessment['score'],assessment['confidence_score'],'PUBLIC_ROUTE_FOUND' if assessment['components']['contact']['score'] else 'UNKNOWN',json.dumps({'scoring':reasons,'qualification':assessment,'reviewer':reviewer,'operator_notes':record.get('notes','')}),cid))
+                   (assessment['score'],assessment['confidence_score'],'PUBLIC_ROUTE_FOUND' if assessment['components']['contact']['score'] else 'UNKNOWN',json.dumps({'scoring':reasons,'qualification':assessment,'reviewer':reviewer,'operator_notes':record.get('notes',''),'policy':effective}),cid))
         db.execute('COMMIT')
     except BaseException:
         db.execute('ROLLBACK'); raise
@@ -120,14 +124,24 @@ def score_candidate(facts, evidence=(), contacts=(), *, as_of=None):
     return result['score'], [c['reason'] for c in result['components'].values()]
 
 
-def candidate_assessment(db, cid, *, as_of=None):
+def stored_policy(db, cid):
+    row = db.execute('SELECT notes FROM candidates WHERE id=?', (cid,)).fetchone()
+    try:
+        notes = json.loads(row['notes'] or '{}') if row else {}
+        return normalize_policy(notes.get('policy')) if isinstance(notes, dict) and notes.get('policy') else None
+    except (ValueError, TypeError):
+        return None
+
+
+def candidate_assessment(db, cid, *, as_of=None, policy=None):
+    if policy is None: policy = stored_policy(db, cid)
     rows = []
     for row in db.execute('SELECT e.*,a.metadata_json FROM evidence e LEFT JOIN qualification_annotations a ON a.evidence_id=e.id WHERE candidate_id=? ORDER BY e.id', (cid,)):
         e = dict(row)
         e['value'] = json.loads(e['value']) if e['value'] is not None else None
         e.update(json.loads(e.pop('metadata_json') or '{}'))
         rows.append(e)
-    return assess_candidate({}, rows, [dict(c) for c in db.execute('SELECT * FROM contacts WHERE candidate_id=?', (cid,))], as_of=as_of)
+    return assess_candidate({}, rows, [dict(c) for c in db.execute('SELECT * FROM contacts WHERE candidate_id=?', (cid,))], as_of=as_of, policy=policy)
 
 
 def report(db, run_id, *, as_of=None):

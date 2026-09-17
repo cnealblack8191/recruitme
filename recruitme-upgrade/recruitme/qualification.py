@@ -6,18 +6,47 @@ import ipaddress
 import re
 from urllib.parse import urlsplit
 
-VERSION = 'commercial-atlanta-v1'
+VERSION = 'commercial-atlanta-v2'
 WEIGHTS = {'trade_fit': 25, 'experience': 15, 'geography': 15,
            'job_change': 20, 'freshness': 10, 'contact': 5, 'source_quality': 10}
 FIELDS = ('name', 'role', 'commercial_experience', 'years_experience', 'location', 'availability_signal')
-METRO = re.compile(r'\b(atlanta|marietta|decatur|doraville|lawrenceville|conyers|covington|'
-                   r'roswell|alpharetta|sandy springs|smyrna|duluth|norcross|dunwoody|'
-                   r'kennesaw|tucker|lithonia|peachtree corners)\b', re.I)
+# Default metro Atlanta localities: the union of both saved profiles plus the
+# original conservative list. A run policy may replace it with its own list.
+DEFAULT_LOCALITIES = ('Atlanta', 'Marietta', 'Decatur', 'Doraville', 'Lawrenceville', 'Conyers', 'Covington',
+                      'Roswell', 'Alpharetta', 'Sandy Springs', 'Smyrna', 'Duluth', 'Norcross', 'Dunwoody',
+                      'Kennesaw', 'Tucker', 'Lithonia', 'Peachtree Corners', 'Chamblee', 'Brookhaven',
+                      'Johns Creek', 'Stone Mountain', 'Snellville', 'Loganville', 'Lithia Springs',
+                      'McDonough', 'Monroe', 'Social Circle', 'Cumming', 'Oxford', 'DeKalb County',
+                      'Gwinnett County', 'Fulton County', 'Cobb County', 'Newton County', 'Rockdale County')
+DEFAULT_POLICY = {'localities': None, 'maximum_signal_age_days': 90,
+                  'years_minimum': 3, 'years_maximum': 10, 'years_maximum_is_gate': True}
+POLARITIES = ('POSITIVE_SEEKING', 'NEGATIVE_NOT_SEEKING', 'AMBIGUOUS')
+
+
+def metro_pattern(localities=None):
+    names = set()
+    for loc in (localities or DEFAULT_LOCALITIES):
+        name = re.sub(r'\s*,?\s*(?:Georgia|GA)\s*$', '', str(loc).strip(), flags=re.I)
+        if name: names.add(name)
+    ordered = sorted((re.escape(n) for n in names), key=len, reverse=True)
+    return re.compile(r'\b(' + '|'.join(ordered) + r')\b', re.I)
+
+
+METRO = metro_pattern()
 TRADE = re.compile(r'\b(electrician|wireman|electrical (foreman|superintendent|apprentice|installer))\b', re.I)
-POSITIVE = re.compile(r'\b(open to work|seeking employment|looking for (work|a job|a new role)|'
-                      r'available for (work|hire)|seeking (a |my )?(new|next) (role|job|opportunity))\b', re.I)
-NEGATIVE = re.compile(r'\b(not (currently )?(open|looking|seeking|available)|no longer|'
-                      r'accepted .*?(offer|job|position)|got hired|started .*?new (job|position))\b', re.I)
+# Statements a person makes about wanting work. Layoff, relocation or résumé
+# mentions alone stay weak; a reviewer can override with signal_polarity.
+POSITIVE = re.compile(r'(?:#\s*)?\b(?:open ?to ?work|seeking (?:employment|work)|actively (?:seeking|looking)|'
+                      r'looking for (?:work|a job|(?:a |my )?(?:new |next |another )?(?:role|job|opportunity|position|employer|project|company))|'
+                      r'seeking (?:a |my |another )?(?:new |next )?(?:role|job|opportunit(?:y|ies)|position|employer|project)|'
+                      r'available (?:for (?:work|hire)|immediately|to start)|ready (?:for|to start) (?:a )?new (?:opportunity|role|job|challenge)|'
+                      r'(?:on|in) the (?:job )?market|job (?:hunting|search(?:ing)?)|applied for (?:this|the|your) (?:position|job|role)|'
+                      r'interested in (?:this|the|your|new) (?:[a-z-]+ )?(?:position|job|role|opening|opportunit(?:y|ies)))\b', re.I)
+NEGATIVE = re.compile(r'\b(?:not (?:currently )?(?:open|looking|seeking|available|interested)|'
+                      r'no longer (?:looking|seeking|available|open|interested|on the market)|'
+                      r'accepted (?:a |an |the |my )?(?:new )?(?:offer|job|position|role)|got hired|(?:was|been) hired|'
+                      r'(?:started|starting) (?:a |my )?new (?:job|position|role)|found (?:a |my )?(?:new )?(?:job|position)|'
+                      r'off the market)\b', re.I)
 QUALITY = {'first_party': 1.0, 'official_record': 1.0, 'professional_profile': .8,
            'secondary': .5, 'search_snippet': .25, 'unknown': .0}
 
@@ -45,7 +74,44 @@ def public_url(value):
         return False
 
 
-def assess_candidate(facts, evidence=(), contacts=(), *, as_of=None):
+def normalize_policy(policy=None):
+    """Run-specific gates: localities, signal window, relevant-year range."""
+    p = dict(DEFAULT_POLICY)
+    for k, v in (policy or {}).items():
+        if k in p and v is not None: p[k] = v
+    if p['localities'] is not None:
+        if not isinstance(p['localities'], (list, tuple)) or not p['localities'] or any(not isinstance(x, str) or not x.strip() for x in p['localities']):
+            raise ValueError('Policy localities must be a nonempty list of names')
+    window = p['maximum_signal_age_days']
+    if type(window) is not int or not 1 <= window <= 365: raise ValueError('Signal window must be 1-365 days')
+    lo, hi = p['years_minimum'], p['years_maximum']
+    if type(lo) not in (int, float) or type(hi) not in (int, float) or not 0 <= lo <= hi <= 80: raise ValueError('Invalid relevant-year range')
+    p['years_maximum_is_gate'] = bool(p['years_maximum_is_gate'])
+    return p
+
+
+def policy_from_profile(profile):
+    """Read the saved job profile's qualification policy; absent fields keep defaults."""
+    if not isinstance(profile, dict): return None
+    qp = profile.get('qualification_policy') or {}
+    years = qp.get('relevant_years') or {}
+    return normalize_policy({'localities': profile.get('locations') or None,
+                             'maximum_signal_age_days': qp.get('maximum_signal_age_days'),
+                             'years_minimum': years.get('minimum'), 'years_maximum': years.get('maximum'),
+                             'years_maximum_is_gate': years.get('maximum_is_gate')})
+
+
+def signal_polarity(e):
+    """Reviewer-selected polarity wins; regexes only propose when it is absent."""
+    explicit = e.get('signal_polarity')
+    if explicit in POLARITIES: return explicit
+    text = str(e.get('value')) + ' ' + str(e.get('excerpt'))
+    if NEGATIVE.search(text): return 'NEGATIVE_NOT_SEEKING'
+    if POSITIVE.search(str(e.get('value'))): return 'POSITIVE_SEEKING'
+    return 'AMBIGUOUS'
+
+
+def assess_candidate(facts, evidence=(), contacts=(), *, as_of=None, policy=None):
     """Only per-evidence human attestations establish VERIFIED_FACT.
 
     Legacy CLAIMED/CORROBORATED rows remain inferences. Independence and repeated
@@ -54,6 +120,10 @@ def assess_candidate(facts, evidence=(), contacts=(), *, as_of=None):
     """
     today = date(as_of) if as_of is not None else dt.datetime.now(dt.timezone.utc).date()
     if today is None: raise ValueError('Invalid assessment date')
+    pol = normalize_policy(policy)
+    metro = metro_pattern(pol['localities']) if pol['localities'] else METRO
+    window = pol['maximum_signal_age_days']; full_credit = min(30, window)
+    lo, hi = pol['years_minimum'], pol['years_maximum']
     rows = []
     seen = set()
     for raw in evidence:
@@ -97,28 +167,29 @@ def assess_candidate(facts, evidence=(), contacts=(), *, as_of=None):
         'Requires an electrical field role AND commercial construction experience; generic electrical titles are insufficient.')
     years = claims['years_experience']['value']
     valid_years = type(years) in (int, float) and math.isfinite(years) and 0 <= years <= 80
-    experience = (1 if 3 <= years <= 10 else .6 if 2 <= years < 3 or 10 < years <= 12 else .25) if valid_years else 0
-    add('experience', experience, ('years_experience',), 'Relevant trade years: 3–10 full credit; 2–<3 or >10–12 partial; other valid years limited credit. Never infer years from seniority.')
+    experience = (1 if lo <= years <= hi else .6 if lo - 1 <= years < lo or hi < years <= hi + 2 else .25) if valid_years else 0
+    add('experience', experience, ('years_experience',), f'Relevant trade years: {lo:g}–{hi:g} full credit; one year under or two over partial; other valid years limited credit. Never infer years from seniority.')
     location = str(claims['location']['value'])
-    local = bool(METRO.search(location)) and bool(re.search(r'\b(GA|Georgia|Metro Atlanta|Greater Atlanta|Atlanta Metropolitan)\b', location, re.I))
-    add('geography', int(local), ('location',), 'Requires an explicit Metro Atlanta locality in Georgia; Georgia alone, missing location, or ambiguous city names do not establish commute fit.')
+    local = bool(metro.search(location)) and bool(re.search(r'\b(GA|Georgia|Metro Atlanta|Greater Atlanta|Atlanta Metropolitan)\b', location, re.I))
+    add('geography', int(local), ('location',), 'Requires an explicit locality from the run policy in Georgia; Georgia alone, missing location, or ambiguous city names do not establish commute fit.')
 
     signals = [e for e in rows if e.get('field') == 'availability_signal']
-    negative = any(NEGATIVE.search(str(e.get('value')) + ' ' + str(e.get('excerpt'))) for e in signals)
+    polarities = {id(e): signal_polarity(e) for e in signals}
+    negative = any(p == 'NEGATIVE_NOT_SEEKING' for p in polarities.values())
     eligible = [e for e in signals if e.get('subject_confirmed') is True and e.get('original_date_verified') is True
-                and e['knowledge'] == 'VERIFIED_FACT' and POSITIVE.search(str(e.get('value')))
+                and e['knowledge'] == 'VERIFIED_FACT' and polarities[id(e)] == 'POSITIVE_SEEKING'
                 and date(e.get('original_date')) is not None
                 and date(e['original_date']) <= date(e['retrieved_at']) <= today]
     signal = max(eligible, key=lambda e: date(e['original_date']), default=None)
     age = (today - date(signal['original_date'])).days if signal else None
-    recent = age is not None and 0 <= age <= 90 and not negative
+    recent = age is not None and 0 <= age <= window and not negative
     # The signal's own original date is required; retrieval dates and separate,
     # unrelated signal_date rows never make an undated statement current.
     signal_fraction = 1 if recent else .25 if signal and not negative else 0
     add('job_change', signal_fraction, ('availability_signal',),
         'Requires a person-attributed, human-verified statement of job-change interest. Negative evidence blocks qualification until reviewed.')
-    freshness = 1 if recent and age <= 30 else .6 if recent else 0
-    add('freshness', freshness, ('availability_signal',), 'Original signal age: 0–30 days full credit, 31–90 reduced credit, >90 stale; missing/invalid/future dates receive zero.')
+    freshness = 1 if recent and age <= full_credit else .6 if recent else 0
+    add('freshness', freshness, ('availability_signal',), f'Original signal age: 0–{full_credit} days full credit, up to {window} days reduced credit, older stale; missing/invalid/future dates receive zero.')
     if negative:
         claims['availability_signal']['conflict'] = True
         claims['availability_signal']['knowledge_status'] = 'UNKNOWN'
@@ -145,9 +216,9 @@ def assess_candidate(facts, evidence=(), contacts=(), *, as_of=None):
     blockers = []
     if not isinstance(claims['name']['value'], str) or not claims['name']['value'].strip(): blockers.append('Candidate identity not established')
     if not trade or not commercial: blockers.append('Commercial electrical trade fit not established')
-    if not valid_years or not 3 <= years <= 10: blockers.append('Relevant experience outside target or unknown')
+    if not valid_years or years < lo or (pol['years_maximum_is_gate'] and years > hi): blockers.append('Relevant experience outside target or unknown')
     if not local: blockers.append('Metro Atlanta location not established')
-    if not recent: blockers.append('No sufficient verified job-change signal within 90 days')
+    if not recent: blockers.append(f'No sufficient verified job-change signal within {window} days')
     if not routes: blockers.append('No recent legitimate public professional contact route evidenced')
     if any(c['conflict'] for c in claims.values()): blockers.append('Contradictory evidence requires resolution')
     if any(c['knowledge_status'] != 'VERIFIED_FACT' for c in claims.values()): blockers.append('Required claims still inferred or unknown')
@@ -155,7 +226,7 @@ def assess_candidate(facts, evidence=(), contacts=(), *, as_of=None):
     confidence = round(100 * sum(c['source_quality'] * {'VERIFIED_FACT': 1, 'REASONABLE_INFERENCE': .5, 'UNKNOWN': 0}[c['knowledge_status']] for c in claims.values()) / len(FIELDS))
     confidence = min(confidence, 49) if not recent else confidence
     classification = 'FULLY_QUALIFIED' if not blockers else ('PROVISIONAL' if recent else 'RESEARCH_ONLY')
-    return {'version': VERSION, 'assessed_as_of': today.isoformat(), 'classification': classification,
+    return {'version': VERSION, 'assessed_as_of': today.isoformat(), 'classification': classification, 'policy': pol,
             'score': min(raw_score, 69) if blockers else raw_score, 'raw_score': raw_score,
             'score_cap_reason': 'Unmet qualification gates cap score at 69' if blockers else None,
             'confidence_score': confidence, 'confidence_note': 'Evidence support index, not a probability; without recent verified interest capped at 49.',

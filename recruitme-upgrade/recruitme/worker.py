@@ -132,10 +132,12 @@ def run(config_path, state_path, job_path, probe=False):
                 if job['mode']=='channel_import':
                     from .channels import validate_import
                     validate_import(job)
+                from .qualification import policy_from_profile
+                policy=policy_from_profile(job.get('job_profile'))
                 for record in job.get('candidates',[]):
-                    guard(); data.import_candidate(ledger.db,record,run_id=run_id)
+                    guard(); data.import_candidate(ledger.db,record,run_id=run_id,policy=policy)
                     if record.get('assessment'):
-                        ledger.record_qualification(run_id,record['identity_key'],record['assessment'])
+                        ledger.record_qualification(run_id,record['identity_key'],record['assessment'],policy=policy)
             else:
                 raise StopRun('Unsupported mode')
             # No further request is needed. Finishing the final requested operation
