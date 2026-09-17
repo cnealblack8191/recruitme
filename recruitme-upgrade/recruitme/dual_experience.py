@@ -8,14 +8,28 @@ from urllib.parse import urlsplit
 from .source_registry import apply_route
 
 VERSION = 'dual-experience-2026-09-11'
+# Recruiting/HR titles, including the workforce and craft-recruiting titles that
+# electrical contractors and trades staffing firms actually use.
 ROLES = ('recruiter', 'human resources', 'talent acquisition', 'recruiting manager',
-         'HR manager', 'staffing manager', 'talent acquisition specialist', 'HR generalist')
+         'HR manager', 'staffing manager', 'talent acquisition specialist', 'HR generalist',
+         'craft recruiter', 'field recruiter', 'workforce development manager',
+         'manpower coordinator', 'talent acquisition partner', 'military recruiter')
+# Hands-on titles, including military electrical ratings whose holders often
+# rotate into recruiting duty.
 FIELD_ROLES = ('electrician', 'electrical foreman', 'journeyman electrician',
-               'electrical superintendent', 'electrical apprentice', 'wireman')
+               'electrical superintendent', 'electrical apprentice', 'wireman',
+               'construction electrician', 'interior electrician', "electrician's mate")
 REGIONS = ('Georgia', 'Alabama', 'Florida', 'Tennessee', 'North Carolina', 'South Carolina')
-HR = re.compile(r'\b(recruiter|recruiting|recruitment|talent acquisition|human resources|HR (?:manager|generalist|specialist|coordinator|business partner)|staffing manager)\b', re.I)
-FIELD = re.compile(r'\b(?:journeyman |master |apprentice |commercial |industrial |lead )?electrician\b|\belectrical (?:foreman|superintendent|apprentice)\b|\b(?:journeyman )?wireman\b', re.I)
-PAST_FIELD = re.compile(r'\b(?:worked as (?:an? )?|former |previously (?:an? )?|started (?:my career )?as (?:an? )?|experience as (?:an? )?)(?:journeyman |master |apprentice |commercial |industrial |lead )?(?:electrician|electrical (?:foreman|superintendent|apprentice)|wireman)\b', re.I)
+HR = re.compile(r'\b(recruiter|recruiting|recruitment|talent acquisition|human resources|HR (?:manager|generalist|specialist|coordinator|business partner)|staffing manager|workforce development|manpower (?:coordinator|planner|manager)|career counselor)\b', re.I)
+FIELD = re.compile(r'\b(?:(?:journeyman|master|apprentice|commercial|industrial|lead|construction|interior) )*electrician\b|\belectrical (?:foreman|superintendent|apprentice|systems (?:specialist|technician|apprentice|journeyman|craftsman))\b|\b(?:journeyman )?wireman\b|\belectrician\x27?s mate\b|\b(?:MOS )?(?:12R|12P|3E0X1)\b', re.I)
+PAST_FIELD = re.compile(r'\b(?:worked as (?:an? )?|former |previously (?:an? )?|started (?:my career )?as (?:an? )?|experience as (?:an? )?|served as (?:an? )?)(?:(?:journeyman|master|apprentice|commercial|industrial|lead|construction|interior|Navy|Army|Air Force|Marine|USMC|Seabee) )*(?:electrician|electrical (?:foreman|superintendent|apprentice|systems (?:specialist|technician))|wireman|electrician\x27?s mate)\b', re.I)
+# Structured people providers answer "past title electrician, current title
+# recruiter" directly. Each entry is (provider, query builder). Queries carry no
+# web options because these adapters accept none.
+STRUCTURED_FIELD_TITLES = ('electrician', 'journeyman electrician', 'commercial electrician',
+                           'electrical foreman', 'construction electrician', 'industrial electrician')
+STRUCTURED_HR_TITLES = ('recruiter', 'talent acquisition specialist', 'talent acquisition manager',
+                        'senior recruiter', 'recruiting manager', 'human resources manager')
 INTENT = re.compile(r'\b(open to work|opentowork|seeking employment|seeking (?:my |a )?(?:next|new) (?:role|opportunity|position)|looking for (?:work|a job|a new role|my next opportunity)|available for (?:work|hire)|laid off)\b', re.I)
 RELOCATION = re.compile(r'\b(?:willing|open|able|ready) to (?:relocate|relocation)\b|\b(?:I am |I\x27m )?(?:relocating|moving) to\b', re.I)
 NEGATIVE = re.compile(r'\b(?:not (?:currently )?(?:seeking|looking|available|open)|no longer (?:looking|seeking|available)|accepted (?:a |an |my )?(?:new )?(?:job|offer|position)|started (?:a |my )?new (?:job|position))\b', re.I)
@@ -23,8 +37,32 @@ TECHNICAL = re.compile(r'\b(?:technical interviews?|skills? assess(?:ment|ments)
 PAY = re.compile(r'\b(?:pay rates?|wage rates?|compensation|salary recommendations?)\b', re.I)
 
 
+def structured_plan(state, name, index):
+    """One structured career-transition query for an enabled people-data provider."""
+    import json
+    field=STRUCTURED_FIELD_TITLES[index % len(STRUCTURED_FIELD_TITLES)]
+    hr=STRUCTURED_HR_TITLES[(index // len(STRUCTURED_FIELD_TITLES)) % len(STRUCTURED_HR_TITLES)]
+    region=REGIONS[index % len(REGIONS)]
+    if name == 'pdl_free':
+        # Alternate taxonomy and literal-title filters; a live run shows which the account matches.
+        current = {'job_title_sub_role': 'recruiting'} if index % 2 else {'job_title': hr}
+        query=json.dumps({**current, 'experience.title.name': field, 'location_region': region.lower()}, sort_keys=True)
+    elif name == 'apollo':
+        query=json.dumps({'person_titles': [hr], 'person_locations': [region], 'q_keywords': field}, sort_keys=True)
+    elif name == 'coresignal':
+        query=json.dumps({'experience_title': field, 'headline': hr, 'location': region}, sort_keys=True)
+    else:  # exa_people and any text-based people route
+        query=f'former {field} now {hr} {region}'
+    return dict(query=query[:500], purpose='discovery', strategy='dual_structured_transition', target=None,
+                provider=name, options={}, source_family='structured_people',
+                source_access='structured_people_api', screening_version=VERSION)
+
+
 def next_plan(state, provider):
     p=state['job_profile']; n=len(state['queries']); i=state['discovery_index']
+    structured=[s for s in state.get('structured_providers', []) if isinstance(s, str)]
+    if structured and i % 4 == 1:
+        return structured_plan(state, structured[(i // 4) % len(structured)], i // 4)
     if n % 3 == 2:
         pool=sorted(state['packets'].values(), key=lambda x:-x['review_priority'])
         for packet in pool:
@@ -98,7 +136,7 @@ def apply_screen(packet, profile):
                 field_history=line.strip();break
             if FIELD.search(line) and re.search(r'\b(?:19|20)\d{2}\b',line):
                 field_history=line.strip();break
-            if re.match(r'^\s*(?:#{1,3}\s*)?(?:journeyman |master |apprentice |commercial |industrial |lead )?(?:electrician|electrical (?:foreman|superintendent|apprentice)|wireman)\b',line,re.I) and re.search(r'\b(?:19|20)\d{2}\b',' '.join(lines[index+1:index+4])):
+            if FIELD.match(line.strip(' #*-\t')) and re.search(r'\b(?:19|20)\d{2}\b',' '.join(lines[index+1:index+4])):
                 field_history='\n'.join(lines[index:index+4]).strip();break
     dual=bool(hr and (field or field_history))
     names=[re.sub(r'\s+Georgia$','',x) for x in profile['locations']]+['Metro Atlanta','Atlanta Metropolitan Area','Greater Atlanta']

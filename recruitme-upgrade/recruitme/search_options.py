@@ -14,6 +14,9 @@ def validate_options(options=None):
         if not isinstance(o[k],list) or len(o[k])>20 or any(not isinstance(d,str) or not re.fullmatch(r'[A-Za-z0-9.-]+(?:/[A-Za-z0-9_./-]*)?',d) or '.' not in d.split('/')[0] for d in o[k]):
             raise StopRun('Invalid bounded domain filter')
         o[k]=sorted(set(o[k]))
+        # An empty domain list is no filter. Dropping it keeps filter-free plans
+        # eligible for adapters that accept no web options (structured people data).
+        if not o[k]:del o[k]
     for k in ('start_date','end_date'):
         if k not in o:continue
         try:

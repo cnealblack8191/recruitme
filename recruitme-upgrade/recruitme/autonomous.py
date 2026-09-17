@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 import time
 from urllib.parse import urlsplit
-from .budget import StopRun
+from .budget import StopRun, money
 from .governors import stop_code
 from .connectors import ExaFree
 from .exa_keyed import ExaKeyed
@@ -250,10 +250,30 @@ def consume(state,plan,response,stamp,raw_path):
     state['pending']=None
 
 
+def structured_providers(config):
+    """Enabled, approved, credentialed people-data routes a planner may address directly.
+
+    Computed once per run so a planner never targets a route the router would refuse.
+    """
+    names=[]
+    for name,p in config.get('providers',{}).items():
+        cls=DISCOVERY_PLUGINS.get(name)
+        if not cls or not p.get('enabled') or not p.get('approved') or 'search' not in p.get('operations',{}):continue
+        if getattr(cls,'capability','')!='structured_people' and name!='exa_people':continue
+        if money(p['operations']['search']) and not config.get('paid_enabled'):continue
+        ready=getattr(cls,'credentials_available',None)
+        if ready and not ready(p):continue
+        names.append(name)
+    return names
+
+
 def web_policy_plan(state, candidate, config):
     """Free-first planning keeps variation and resumes exact pending requests."""
     if state.get('pending'):
         return state['pending']
+    if candidate.get('source_family')=='structured_people':
+        # Structured queries are provider-specific; free-first substitution would send JSON to a web index.
+        return dict(candidate)
     candidate=dict(candidate)
     candidate.pop('provider',None)
     if len(state['queries']) < 3 or not config.get('paid_enabled'):
@@ -299,7 +319,8 @@ def execute(ledger,run_id,state_path,job,guard,client=None,sleep=time.sleep):
     if not saved and job.get('job_profile'):
         from .profiles import validate
         now=datetime.datetime.now(datetime.timezone.utc).date()
-        state.update(job_profile=validate(job['job_profile']),improved=True,search_as_of=now.isoformat())
+        state.update(job_profile=validate(job['job_profile']),improved=True,search_as_of=now.isoformat(),
+                     structured_providers=structured_providers(ledger.config))
     if not saved and job.get('search_version',ledger.config.get('search_version'))=='intent-v2':
         now=datetime.datetime.now(datetime.timezone.utc).date()
         state.update(improved=True,search_as_of=now.isoformat(),focus_month=now.strftime('%B %Y'),focus_range='last 180 days')

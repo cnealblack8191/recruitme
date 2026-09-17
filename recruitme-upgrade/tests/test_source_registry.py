@@ -22,3 +22,15 @@ class SourceRegistryTests(unittest.TestCase):
     def test_coverage_counts_empty_results_without_claiming_access(self):
         self.assertEqual(coverage([{'source_family':'linkedin','result_count':0},{'source_family':'linkedin','result_count':2}]),{'linkedin':{'completed_queries':2,'returned_pages':2}})
 
+    def test_open_web_route_leaves_structured_people_adapters_eligible(self):
+        from recruitme.plugins import ExaPeople, PDLFree, ApolloPeople, Coresignal
+        p=apply_route(dict(query='former electrician recruiter Georgia',provider='exa_keyed',options={}),0,'recruiter')
+        o=validate_options(p['options'])
+        self.assertEqual(o,{})
+        for cls in (ExaPeople,PDLFree,ApolloPeople,Coresignal):
+            self.assertTrue(cls.accepts_options(o),cls.name)
+        domain=apply_route(dict(query='q',provider='exa_keyed',options={}),1,'recruiter')
+        self.assertEqual(list(validate_options(domain['options'])),['include_domains'])
+        self.assertTrue(ExaPeople.accepts_options({'include_domains':['linkedin.com']}))
+        self.assertFalse(ExaPeople.accepts_options({'include_domains':['postjobfree.com']}))
+        self.assertFalse(PDLFree.accepts_options({'include_domains':['linkedin.com']}))

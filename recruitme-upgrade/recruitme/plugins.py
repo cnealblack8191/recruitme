@@ -53,16 +53,19 @@ class Plugin(ExaKeyed):
         return money(self.unit_price),self.name+'-2026-09-12',EXPIRES
     def headers(self,key):return {'Content-Type':'application/json','Authorization':'Bearer '+key,'User-Agent':'RecruitMe/0.4'}
 
+LINKEDIN_PEOPLE_DOMAINS=('linkedin.com','www.linkedin.com','linkedin.com/in','www.linkedin.com/in')
+
 class ExaPeople(Plugin):
     name='exa_people';unit_price='0.007';credential_name='exa'
     @staticmethod
     def accepts_options(options):
-        return not options
+        # People search takes no dates or exclusions; a LinkedIn include filter is fine.
+        return set(options)<={'include_domains'} and all(d in LINKEDIN_PEOPLE_DOMAINS for d in options.get('include_domains',[]))
     def credential(self):return exa_key()
     def request_body(self,query,count,options):
         if options.get('start_date') or options.get('end_date') or options.get('exclude_domains'):
             raise StopRun('Exa people search does not support date or excluded-domain filters')
-        if any(d not in ('linkedin.com','www.linkedin.com','linkedin.com/in','www.linkedin.com/in') for d in options.get('include_domains',[])):
+        if any(d not in LINKEDIN_PEOPLE_DOMAINS for d in options.get('include_domains',[])):
             raise StopRun('Unsupported people-search domain')
         return {'query':query,'category':'people','type':'auto','numResults':count,'contents':{'text':{'maxCharacters':12000}}}
     def headers(self,key):return {'Content-Type':'application/json','x-api-key':key}
@@ -147,7 +150,10 @@ class PDLFree(Plugin):
             import json
             try:filters=json.loads(query)
             except (TypeError,ValueError):raise StopRun('Invalid PDL field filters') from None
-            allowed={'full_name','job_title','location_region','location_country','location_metro','experience.title.name'}
+            # Exact-term fields only. Role/sub-role taxonomy keys let a career-transition
+            # search ask for current recruiting work plus a past electrical title.
+            allowed={'full_name','job_title','job_title_role','job_title_sub_role','location_region','location_country',
+                     'location_metro','experience.title.name','experience.title.role','experience.title.sub_role'}
             if (not isinstance(filters,dict) or not filters or not set(filters)<=allowed
                 or any(not isinstance(v,str) or not v.strip() or len(v)>300 for v in filters.values())):
                 raise StopRun('Unsupported PDL field filters')
@@ -199,6 +205,16 @@ class ApolloPeople(Plugin):
     def headers(self,key):return {'Content-Type':'application/json','x-api-key':key}
     def request_body(self,query,count,options):
         if options:raise StopRun('Apollo discovery does not support web date/domain filters')
+        if query.lstrip().startswith('{'):
+            import json
+            try:filters=json.loads(query)
+            except (TypeError,ValueError):raise StopRun('Invalid Apollo field filters') from None
+            allowed={'person_titles':list,'person_locations':list,'q_keywords':str}
+            if (not isinstance(filters,dict) or not filters or not set(filters)<=set(allowed)
+                or any(not isinstance(v,allowed[k]) or not v or len(v)>300 for k,v in filters.items())
+                or any(not isinstance(x,str) or not x.strip() or len(x)>100 for k,v in filters.items() if k!='q_keywords' for x in v)):
+                raise StopRun('Unsupported Apollo field filters')
+            return {**filters,'page':1,'per_page':count}
         return {'q_keywords':query,'page':1,'per_page':count}
     def normalize(self,result):
         if result.get('error') or not isinstance(result.get('people'),list):
